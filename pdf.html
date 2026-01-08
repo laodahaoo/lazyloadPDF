@@ -1,0 +1,3178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Viewer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background: #e0e0e0;
+            min-height: 100vh;
+            color: #333;
+            overflow: hidden;
+            /* 给body添加padding-top，为固定工具栏留出空间 */
+            padding-top: 60px;
+        }
+
+        .dark {
+            background: #2c3e50;
+            color: white;
+        }
+
+        .dark .toolbar {
+            background: #2c3e50;
+            color: white;
+        }
+
+        .dark .thumbnail-page-num {
+            color: white;
+        }
+
+        .dark .sidebar {
+            background: #2c3e50;
+            color: white;
+        }
+
+        .dark .main-content {
+            background: #2c3e50;
+        }
+
+        /* 固定顶部工具栏 */
+        .toolbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 60px;
+            background: #2c3e50;
+            color: white;
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            z-index: 1000;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .toolbar-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 0 15px;
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .toolbar-group:last-child {
+            border-right: none;
+            margin-left: auto;
+        }
+
+        .toolbar-btn {
+            background: transparent;
+            border: none;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+
+        .toolbar-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .toolbar-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .toolbar-btn.active {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .toolbar-input {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 6px 10px;
+            border-radius: 4px;
+            width: 60px;
+            font-size: 14px;
+        }
+
+        .toolbar-input::placeholder {
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .toolbar-separator {
+            width: 1px;
+            height: 30px;
+            background: rgba(255, 255, 255, 0.2);
+            margin: 0 5px;
+        }
+
+        /* 左侧边栏 */
+        .sidebar {
+            position: fixed;
+            left: 0;
+            top: 60px;
+            bottom: 0;
+            width: 280px;
+            background: #f5f5f5;
+            border-right: 1px solid #ddd;
+            z-index: 999;
+            transition: transform 0.3s;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar.collapsed {
+            transform: translateX(-280px);
+        }
+
+        .sidebar-header {
+            padding: 15px;
+            background: #34495e;
+            color: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .sidebar-tabs {
+            display: flex;
+            background: #ecf0f1;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .sidebar-tab {
+            flex: 1;
+            padding: 12px;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            color: #555;
+            transition: all 0.2s;
+        }
+
+        .sidebar-tab.active {
+            background: white;
+            color: #2c3e50;
+            font-weight: 600;
+        }
+
+        .sidebar-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+        }
+
+        .sidebar-content::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+
+        .sidebar-content::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 5px;
+        }
+
+        .sidebar-pane {
+            display: none;
+        }
+
+        .sidebar-pane.active {
+            display: block;
+        }
+
+        /* 缩略图 */
+        .thumbnail-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            padding: 8px 0;
+            align-items: center;
+        }
+
+        .thumbnail-item {
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 120px;
+            /* 缩小容器高度，使其与50%的图片匹配，保持A4比例 */
+            /* 高度 = 宽度 * (842/595) * 0.5，即缩小到一半 */
+            aspect-ratio: 120 / 200;
+            /* A4比例的一半高度 */
+            position: relative;
+            overflow: hidden;
+            flex-direction: column;
+        }
+
+        .thumbnail-item:hover .thumbnail-image {
+            border-color: #3498db;
+        }
+
+        .thumbnail-item.active .thumbnail-image {
+            border-color: #3498db;
+        }
+
+        /* 缩略图图像 */
+        .thumbnail-image {
+            width: 120px;
+            height: 170px;
+            object-fit: contain;
+            border: 4px solid transparent;
+            background: #fff;
+        }
+
+        .thumbnail-page-num {
+            text-align: center;
+            color: #2c3e50;
+        }
+
+        /* 大纲 */
+        .outline-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+
+        .outline-item:hover {
+            background: #9e9e9e;
+        }
+
+        .outline-item.level-1 {
+            padding-left: 12px;
+        }
+
+        .outline-item.level-2 {
+            padding-left: 24px;
+        }
+
+        .outline-item.level-3 {
+            padding-left: 36px;
+        }
+
+        /* 主内容区 */
+        .main-content {
+            margin-left: 280px;
+            margin-top: 0;
+            /* body已经有padding-top: 60px，所以这里不需要margin-top */
+            height: calc(100vh - 60px);
+            overflow-y: auto;
+            background: #e0e0e0;
+            transition: margin-left 0.3s;
+        }
+
+        .main-content.sidebar-collapsed {
+            margin-left: 0;
+        }
+
+        .main-content::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+
+        .main-content::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 4px;
+        }
+
+        .pdf-container {
+            padding: 30px;
+            min-height: 100%;
+        }
+
+        .pdf-viewer {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 25px;
+        }
+
+        .pdf-viewer.single-page {
+            align-items: center;
+        }
+
+        .pdf-viewer.two-page {
+            flex-direction: row;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .pdf-viewer.presentation {
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+        }
+
+        .page-number {
+            text-align: center;
+        }
+
+        /* 演示模式下pdf-container的padding为0 */
+        body.presentation-mode .pdf-container,
+        .main-content.presentation-mode .pdf-container {
+            padding: 0 !important;
+        }
+
+        .pdf-viewer.presentation .page-container {
+            margin-bottom: 0;
+            height: 100vh;
+            max-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+        }
+
+        .pdf-viewer.presentation .page-container:not([style*="display: flex"]) {
+            display: none !important;
+        }
+
+        .pdf-viewer.presentation .page-canvas {
+            max-height: calc(100vh - 60px);
+            max-width: 100vw;
+            width: auto;
+            height: auto;
+            object-fit: contain;
+        }
+
+        .pdf-viewer.presentation .page-number {
+            margin-top: 10px;
+        }
+
+        /* 全屏模式下隐藏滚动条 */
+        :fullscreen .main-content,
+        :-webkit-full-screen .main-content,
+        :-moz-full-screen .main-content,
+        :-ms-fullscreen .main-content {
+            overflow: hidden !important;
+        }
+
+        body.fullscreen-mode .main-content {
+            overflow: hidden !important;
+        }
+
+        /* 全屏模式样式 */
+        body.fullscreen-mode {
+            overflow: hidden;
+        }
+
+        body.fullscreen-mode .toolbar,
+        body.fullscreen-mode .sidebar {
+            display: none !important;
+        }
+
+        body.fullscreen-mode .main-content {
+            margin-left: 0 !important;
+            margin-top: 0 !important;
+            height: 100vh !important;
+        }
+
+        body.fullscreen-mode .pdf-container {
+            padding: 0 !important;
+        }
+
+        /* 全屏API激活时的样式 */
+        :fullscreen .toolbar,
+        :fullscreen .sidebar {
+            display: none !important;
+        }
+
+        :fullscreen .main-content {
+            margin-left: 0 !important;
+            margin-top: 0 !important;
+            height: 100vh !important;
+        }
+
+        :fullscreen .pdf-container {
+            padding: 0 !important;
+        }
+
+        :-webkit-full-screen .toolbar,
+        :-webkit-full-screen .sidebar {
+            display: none !important;
+        }
+
+        :-webkit-full-screen .main-content {
+            margin-left: 0 !important;
+            margin-top: 0 !important;
+            height: 100vh !important;
+        }
+
+        :-webkit-full-screen .pdf-container {
+            padding: 0 !important;
+        }
+
+        :-moz-full-screen .toolbar,
+        :-moz-full-screen .sidebar {
+            display: none !important;
+        }
+
+        :-moz-full-screen .main-content {
+            margin-left: 0 !important;
+            margin-top: 0 !important;
+            height: 100vh !important;
+        }
+
+        :-moz-full-screen .pdf-container {
+            padding: 0 !important;
+        }
+
+        :-ms-fullscreen .toolbar,
+        :-ms-fullscreen .sidebar {
+            display: none !important;
+        }
+
+        :-ms-fullscreen .main-content {
+            margin-left: 0 !important;
+            margin-top: 0 !important;
+            height: 100vh !important;
+        }
+
+        :-ms-fullscreen .pdf-container {
+            padding: 0 !important;
+        }
+
+        .page-container {
+            position: relative;
+            margin-bottom: 20px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+            border-radius: 4px;
+            overflow: hidden;
+            background: white;
+            transition: transform 0.3s;
+        }
+
+        .page-container:hover {
+            transform: translateY(-2px);
+        }
+
+        .page-canvas {
+            display: block;
+            max-width: 100%;
+            height: auto;
+        }
+
+        /* 文本层样式 - 用于文字选择和复制 */
+        .textLayer {
+            position: absolute;
+            left: 0;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            overflow: visible;
+            opacity: 1;
+            line-height: 1.0;
+            /* 确保文本层可以接收鼠标事件 */
+            pointer-events: auto;
+        }
+
+        .textLayer>span {
+            color: transparent;
+            position: absolute;
+            white-space: pre;
+            cursor: text;
+            transform-origin: 0% 0%;
+            /* 确保文本可以正确选择 */
+            user-select: text;
+            -webkit-user-select: text;
+            -moz-user-select: text;
+            -ms-user-select: text;
+            /* 确保文本区域可点击 */
+            pointer-events: auto;
+            /* 垂直对齐 */
+            vertical-align: baseline;
+            /* 确保文本区域有足够的高度 */
+            display: inline-block;
+        }
+
+        .textLayer .highlight {
+            margin: -1px;
+            padding: 1px;
+            background-color: rgba(180, 0, 170, 0.2);
+            border-radius: 4px;
+        }
+
+        .textLayer .highlight.selected {
+            background-color: rgba(0, 100, 0, 0.2);
+        }
+
+        .textLayer ::selection {
+            background: rgba(0, 0, 255, 0.3);
+        }
+
+        .textLayer ::-moz-selection {
+            background: rgba(0, 0, 255, 0.3);
+        }
+
+        /* 页面容器需要相对定位，以便文本层正确定位 */
+        .page-container {
+            position: relative;
+        }
+
+        .page-loading {
+            min-height: 200px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #f8f9fa;
+            color: #7f8c8d;
+        }
+
+        .loading-indicator {
+            text-align: center;
+            padding: 40px;
+            font-size: 1.2rem;
+            color: #7f8c8d;
+        }
+
+        .spinner {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .error-message {
+            text-align: center;
+            padding: 40px;
+            color: #e74c3c;
+            background: #fadbd8;
+            border-radius: 8px;
+            margin: 20px;
+        }
+
+        /* 模态框 */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #999;
+        }
+
+        /* 缩放控制 */
+        .zoom-controls {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .zoom-value {
+            min-width: 60px;
+            text-align: center;
+            font-size: 14px;
+        }
+
+        @media (max-width: 768px) {
+            .sidebar {
+                width: 100%;
+                transform: translateX(-100%);
+            }
+
+            .sidebar.collapsed {
+                transform: translateX(-100%);
+            }
+
+            .main-content {
+                margin-left: 0;
+            }
+
+            .toolbar-group {
+                padding: 0 8px;
+            }
+
+            .toolbar-btn {
+                padding: 6px 8px;
+                font-size: 12px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <!-- 固定顶部工具栏 -->
+    <div class="toolbar" id="toolbar">
+        <div class="toolbar-group">
+            <button class="toolbar-btn" id="sidebar-toggle" title="显示/隐藏侧边栏">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z" />
+                </svg>
+            </button>
+        </div>
+
+        <div class="toolbar-group">
+            <button class="toolbar-btn" id="prev-btn" disabled title="上一页">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
+                </svg>
+            </button>
+            <button class="toolbar-btn" id="next-btn" disabled title="下一页">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
+                </svg>
+            </button>
+            <div class="toolbar-separator"></div>
+            <input type="number" class="toolbar-input" id="page-input" placeholder="页码" min="1" value="1">
+            <span style="margin: 0 5px;">/</span>
+            <span id="total-pages">-</span>
+        </div>
+
+        <div class="toolbar-group">
+            <button class="toolbar-btn" id="zoom-out" title="缩小">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M19 13H5v-2h14v2z" />
+                </svg>
+            </button>
+            <div class="zoom-controls">
+                <span class="zoom-value" id="zoom-value">100%</span>
+            </div>
+            <button class="toolbar-btn" id="zoom-in" title="放大">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+                </svg>
+            </button>
+            <div class="toolbar-separator"></div>
+            <button class="toolbar-btn" id="fit-toggle" title="适应宽度">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    id="fit-icon">
+                    <!-- 适应宽度图标：矩形+左右箭头 -->
+                    <rect x="6" y="8" width="12" height="8" rx="1" />
+                    <path d="M2 12h3M19 12h3" stroke-linecap="round" />
+                    <path d="M4 10l-2 2 2 2M20 10l2 2-2 2" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+            </button>
+        </div>
+
+        <div class="toolbar-group">
+            <button class="toolbar-btn" id="rotate-ccw" title="逆时针旋转">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path
+                        d="M7.11 8.53L5.7 7.11C4.8 8.27 4.24 9.61 4.07 11h2.02c.14-.87.49-1.72 1.02-2.47zM6.09 13H4.07c.17 1.39.72 2.73 1.62 3.89l1.41-1.41c-.52-.75-.87-1.59-1.01-2.48zm1.01 5.32c1.16.9 2.51 1.44 3.9 1.61V17.9c-.87-.15-1.71-.49-2.46-1.03L7.1 18.32zM13 4.07V1L8.5 5.5 13 10V6.09c2.84.48 5 2.94 5 5.91s-2.16 5.43-5 5.91v2.02c3.95-.49 7-3.85 7-7.93s-3.05-7.44-7-7.93z" />
+                </svg>
+            </button>
+        </div>
+
+        <div class="toolbar-group">
+            <button class="toolbar-btn" id="download-btn" title="下载">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path
+                        d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2z" />
+                </svg>
+            </button>
+            <button class="toolbar-btn" id="two-page-btn" title="双页视图">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M4 4h7v16H4V4zm9 0h7v16h-7V4z" />
+                </svg>
+            </button>
+            <button class="toolbar-btn" id="presentation-btn" title="演示模式">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path
+                        d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14zM8 15h2v-2h2v-2h2V9h2v2h-2v2h-2v2H8v-2z" />
+                </svg>
+            </button>
+            <button class="toolbar-btn" id="properties-btn" title="文档属性">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path
+                        d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94L14.4 2.81c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- 左侧边栏 -->
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-tabs">
+            <button class="sidebar-tab active" data-tab="thumbnails">缩略图</button>
+            <button class="sidebar-tab" data-tab="outline">大纲</button>
+        </div>
+        <div class="sidebar-content">
+            <div class="sidebar-pane active" id="thumbnails-pane">
+                <div class="thumbnail-list" id="thumbnail-list"></div>
+            </div>
+            <div class="sidebar-pane" id="outline-pane">
+                <div id="outline-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 主内容区 -->
+    <div class="main-content" id="main-content">
+        <div class="pdf-container">
+            <div id="pdf-viewer" class="pdf-viewer">
+                <div class="loading-indicator">
+                    <div class="spinner"></div>
+                    <p>正在加载PDF文档，请稍候...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 文档属性模态框 -->
+    <div class="modal" id="properties-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>文档属性</h2>
+                <button class="modal-close" id="properties-close">×</button>
+            </div>
+            <div id="properties-content"></div>
+        </div>
+    </div>
+
+    <script>
+        let isDebug = false;
+        let myConsole = {
+            log: function () {
+                if (isDebug) {
+                    console.log.apply(console, arguments);
+                }
+            },
+            error: function () {
+                if (isDebug) {
+                    console.error.apply(console, arguments);
+                }
+            },
+            warn: function () {
+                if (isDebug) {
+                    console.warn.apply(console, arguments);
+                }
+            },
+            info: function () {
+                if (isDebug) {
+                    console.info.apply(console, arguments);
+                }
+            }
+        }
+
+        // 设置PDF.js工作线程路径
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+
+        //是否按需加载
+        let isNeedLoad = true;
+        let isGetTextContent = false;
+
+        // 标记是否正在手动滚动缩略图，避免自动滚动干扰
+        // 全局变量
+        let pdfDoc = null;
+        let currentPage = 1;
+        let totalPages = 0;
+        let renderedPages = new Set();
+        let loadingQueue = [];
+        let isRendering = false;
+        let maxLoadedPage = 0; // 已加载的最大页码
+        let allPagesRenderedCallback = null; // 全部页面渲染完成的回调函数
+        let allPagesRenderedEventFired = false; // 是否已触发全部页面渲染完成事件
+        const PRELOAD_AHEAD = 2; // 预加载页数（当前页+2页）
+        let currentScale = 1.0; // 当前缩放比例（默认100%）
+        let optimalScale = 1.0; // 最优缩放比例（首次加载时自动计算）
+        let currentRotation = 0; // 当前旋转角度
+        let viewMode = 'single'; // 视图模式: single, two-page, presentation
+        let pdfUrl = ''; // PDF文件URL
+
+        // DOM元素
+        const toolbar = document.getElementById('toolbar');
+        const pdfViewer = document.getElementById('pdf-viewer');
+        const mainContent = document.getElementById('main-content');
+        const sidebar = document.getElementById('sidebar');
+        const totalPagesSpan = document.getElementById('total-pages');
+        const pageInput = document.getElementById('page-input');
+        const prevBtn = document.getElementById('prev-btn');
+        const nextBtn = document.getElementById('next-btn');
+        const zoomValue = document.getElementById('zoom-value');
+        const zoomInBtn = document.getElementById('zoom-in');
+        const zoomOutBtn = document.getElementById('zoom-out');
+        const fitToggleBtn = document.getElementById('fit-toggle');
+        const fitIcon = document.getElementById('fit-icon');
+        let fitMode = 'width'; // 'width' 或 'page'
+        const rotateCcwBtn = document.getElementById('rotate-ccw');
+        const downloadBtn = document.getElementById('download-btn');
+        const twoPageBtn = document.getElementById('two-page-btn');
+        const presentationBtn = document.getElementById('presentation-btn');
+        const propertiesBtn = document.getElementById('properties-btn');
+        const sidebarToggle = document.getElementById('sidebar-toggle');
+        const thumbnailList = document.getElementById('thumbnail-list');
+        const outlineList = document.getElementById('outline-list');
+        const propertiesModal = document.getElementById('properties-modal');
+        const propertiesClose = document.getElementById('properties-close');
+
+        // 从URL参数获取PDF文件路径
+        const urlParams = new URLSearchParams(window.location.search);
+        pdfUrl = urlParams.get('pdf');
+
+
+        if (urlParams.get('getTextContent') == 'true') {
+            isNeedLoad = false;
+            isGetTextContent = true;
+        }
+
+        //let bgColor = '525659';
+        let skin = '' + urlParams.get('skin');
+        if (skin == 'dark') {
+            document.body.classList.add('dark');
+        } else {
+            document.body.classList.remove('dark');
+        }
+
+        let textContents = [];
+
+        // 从URL hash读取初始页码
+        let initialPage = 1;
+        if (window.location.hash) {
+            const hashPage = parseInt(window.location.hash.substring(1)); // 去掉#号
+            if (hashPage && hashPage >= 1) {
+                initialPage = hashPage;
+                myConsole.log(`[初始化] 从URL hash读取到初始页码: ${initialPage}`);
+            }
+        }
+
+        // 检查关键元素是否存在
+        myConsole.log('[初始化] 检查关键元素...');
+        myConsole.log('[初始化] pdfViewer:', pdfViewer);
+        myConsole.log('[初始化] mainContent:', mainContent);
+        myConsole.log('[初始化] sidebar:', sidebar);
+        myConsole.log('[初始化] totalPagesSpan:', totalPagesSpan);
+        myConsole.log('[初始化] pageInput:', pageInput);
+        myConsole.log('[初始化] prevBtn:', prevBtn);
+        myConsole.log('[初始化] nextBtn:', nextBtn);
+
+        if (!pdfViewer) {
+            myConsole.error('[初始化] 错误: pdf-viewer 元素未找到！');
+        }
+        if (!mainContent) {
+            myConsole.error('[初始化] 错误: main-content 元素未找到！');
+        }
+
+        // 侧边栏切换
+        if (sidebarToggle) {
+            sidebarToggle.addEventListener('click', function () {
+                sidebar.classList.toggle('collapsed');
+                mainContent.classList.toggle('sidebar-collapsed');
+            });
+        } else {
+            myConsole.warn('[初始化] sidebar-toggle 元素未找到');
+        }
+
+        // 侧边栏标签切换
+        document.querySelectorAll('.sidebar-tab').forEach(tab => {
+            tab.addEventListener('click', function () {
+                document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.sidebar-pane').forEach(p => p.classList.remove('active'));
+                this.classList.add('active');
+                document.getElementById(this.dataset.tab + '-pane').classList.add('active');
+            });
+        });
+
+        // 检查服务器是否支持Range请求（流式加载的关键）
+        function checkRangeSupport(url) {
+            if (!isNeedLoad) {
+                return Promise.resolve(true);
+            }
+            return fetch(url, {
+                method: 'HEAD',
+                headers: {
+                    'Range': 'bytes=0-1'
+                }
+            }).then(response => {
+                const supportsRange = response.status === 206 ||
+                    response.headers.get('Accept-Ranges') === 'bytes';
+                if (!supportsRange) {
+                    myConsole.warn('服务器可能不支持HTTP Range请求，流式加载可能无法正常工作');
+                }
+                return supportsRange;
+            }).catch(() => {
+                myConsole.warn('无法检查Range支持，继续尝试流式加载');
+                return true;
+            });
+        }
+
+        function pageError(message) {
+            pdfViewer.innerHTML = message;
+            toolbar.style.display = 'none';
+            sidebar.style.display = 'none';
+            mainContent.style.marginLeft = '0';
+            return false;
+        }
+
+        if (!pdfUrl) {
+            pageError(`
+                <div class="error-message">
+                    <h3>PDF文件URL未找到</h3>
+                    <p>请检查PDF文件路径是否正确，或尝试使用其他PDF文件。</p>
+                </div>
+            `);
+            myConsole.error('[初始化] 错误: PDF文件URL未找到！');
+        } else {
+            pdfUrl = decodeURIComponent(pdfUrl);
+            // 初始化PDF加载
+            myConsole.log('[初始化] ========== 开始初始化PDF加载 ==========');
+            myConsole.log('[初始化] PDF URL:', pdfUrl);
+            myConsole.log('[初始化] 检查Range支持...');
+            checkRangeSupport(pdfUrl).then(() => {
+                myConsole.log('[初始化] Range支持检查完成，开始加载PDF...');
+                loadPDF(pdfUrl);
+            }).catch(function (error) {
+                myConsole.error('[初始化] Range支持检查失败:', error);
+                myConsole.log('[初始化] 继续尝试加载PDF...');
+                loadPDF(pdfUrl);
+            });
+        }
+
+
+
+
+        // 加载PDF文档
+        function loadPDF(url) {
+            myConsole.log('[loadPDF] ========== 开始加载PDF ==========');
+            myConsole.log('[loadPDF] PDF URL:', url);
+            myConsole.log('[loadPDF] pdfjsLib 是否可用:', typeof pdfjsLib !== 'undefined');
+            myConsole.log('[loadPDF] pdfViewer 元素:', pdfViewer);
+
+            if (!pdfjsLib) {
+                myConsole.error('[loadPDF] 错误: pdfjsLib 未定义！');
+                return pageError(`
+                    <div class="error-message">
+                        <h3>PDF加载失败</h3>
+                        <p>PDF.js 库未加载，请检查脚本引用。</p>
+                    </div>
+                `);
+            }
+
+            if (!pdfViewer) {
+                myConsole.error('[loadPDF] 错误: pdfViewer 元素未找到！');
+                return pageError(`
+                    <div class="error-message">
+                        <h3>PDF加载失败</h3>
+                        <p>PDF Viewer 元素未找到，请检查HTML结构。</p>
+                    </div>
+                `);
+            }
+
+            // 配置PDF.js以启用流式加载和渐进式渲染
+            // PDF.js会自动使用Range请求，无需手动拦截
+            myConsole.log('[loadPDF] 创建 PDF.js loadingTask...');
+
+            let path = (''+location.href).replace(/\/pdf.html[\S\s]*$/, '');
+            var option = {
+                url: url,
+                disableAutoFetch: false,
+                disableStream: false,
+                isEvalSupported: false,
+                cMapUrl: path + '/cmaps/',
+                standardFontDataUrl: path + '/standard_fonts/',
+                iccUrl: path + '/iccs/',
+                wasmUrl: path + '/wasm/'
+            };
+            if (isNeedLoad) {
+                //启用流式加载（关键配置）                
+                option.disableAutoFetch = true;
+                option.disableStream = true;
+                option.rangeChunkSize = 1024 * 1024;
+                option.httpHeaders = {
+                    'Accept-Ranges': 'bytes'
+                };
+            }
+            const loadingTask = pdfjsLib.getDocument(option);
+
+            myConsole.log('[loadPDF] loadingTask 创建完成:', loadingTask);
+
+            // 监听加载进度
+            loadingTask.onProgress = function (progressData) {
+                // 进度信息可以在控制台查看
+                if (progressData.total) {
+                    const percent = Math.round((progressData.loaded / progressData.total) * 100);
+                    myConsole.log(`[loadPDF] PDF加载进度: ${percent}%`);
+                } else {
+                    const loadedMB = (progressData.loaded / 1024 / 1024).toFixed(2);
+                    myConsole.log(`[loadPDF] PDF已加载: ${loadedMB} MB`);
+                }
+            };
+
+            myConsole.log('[loadPDF] 等待 loadingTask.promise...');
+            loadingTask.promise.then(function (pdf) {
+                myConsole.log('[loadPDF] ========== PDF文档结构加载成功 ==========');
+                myConsole.log('[loadPDF] PDF对象:', pdf);
+                myConsole.log('[loadPDF] PDF总页数:', pdf.numPages);
+
+                pdfDoc = pdf;
+                totalPages = pdf.numPages;
+                totalPagesSpan.textContent = totalPages;
+
+                myConsole.log('[loadPDF] 全局变量已更新: pdfDoc=', pdfDoc, ', totalPages=', totalPages);
+
+                // 立即清除初始加载提示
+                const loadingIndicator = pdfViewer.querySelector('.loading-indicator');
+                if (loadingIndicator) {
+                    myConsole.log('[loadPDF] 移除加载提示...');
+                    loadingIndicator.remove();
+                } else {
+                    myConsole.log('[loadPDF] 未找到加载提示元素');
+                }
+
+                myConsole.log('[loadPDF] 调用 loadInitialPages()...');
+
+                // 初始加载：显示前两页，预加载3-4页
+                loadInitialPages();
+
+                myConsole.log('[loadPDF] loadInitialPages() 调用完成');
+
+                // 生成缩略图和大纲
+                setTimeout(function () {
+                    myConsole.log('[loadPDF] 开始生成缩略图和大纲...');
+                    generateThumbnails();
+                    loadOutline();
+
+                    // 如果URL中有hash，跳转到指定页面
+                    if (initialPage > 1 && initialPage <= totalPages) {
+                        myConsole.log(`[loadPDF] 跳转到URL hash指定的页面: ${initialPage}`);
+                        setTimeout(() => {
+                            jumpToPage(initialPage);
+                        }, 100); // 延迟100ms确保缩略图已生成
+                    }
+                }, 500);
+
+            }).catch(function (error) {
+                myConsole.error('[loadPDF] ========== PDF加载失败 ==========');
+                myConsole.error('[loadPDF] 错误对象:', error);
+                myConsole.error('[loadPDF] 错误消息:', error.message);
+                myConsole.error('[loadPDF] 错误堆栈:', error.stack);
+                myConsole.error('[loadPDF] 错误名称:', error.name);
+
+                return pageError(`
+                    <div class="error-message">
+                        <h3>PDF加载失败</h3>
+                        <p>无法加载PDF文档: ${url}</p>
+                        <p>错误信息: ${error.message}</p>
+                        <p>错误名称: ${error.name}</p>
+                        <p>请检查PDF文件路径是否正确，或尝试使用其他PDF文件。</p>
+                        <p style="margin-top: 10px; font-size: 0.9em; color: #c0392b;">
+                            提示：如果PDF文件很大，请确保服务器支持HTTP Range请求（206 Partial Content响应）。
+                        </p>
+                    </div>
+                `);
+            });
+        }
+
+        // 计算最优缩放倍数（适应宽度）
+        function calculateOptimalScale() {
+            if (!pdfDoc) {
+                myConsole.warn('[calculateOptimalScale] pdfDoc 未定义，无法计算最优缩放');
+                return;
+            }
+
+            myConsole.log('[calculateOptimalScale] ========== 开始计算最优缩放倍数 ==========');
+
+            // 获取第一页来计算最优缩放
+            pdfDoc.getPage(1).then(function (page) {
+                const viewport = page.getViewport({ scale: 1 });
+                const containerWidth = mainContent.clientWidth - 60; // 减去padding
+
+                // 计算适应宽度的缩放比例
+                optimalScale = containerWidth / viewport.width;
+
+                myConsole.log(`[calculateOptimalScale] 页面宽度: ${viewport.width}px`);
+                myConsole.log(`[calculateOptimalScale] 容器宽度: ${containerWidth}px`);
+                myConsole.log(`[calculateOptimalScale] 计算得到最优缩放: ${optimalScale.toFixed(3)} (${Math.round(optimalScale * 100)}%)`);
+
+                // 如果当前缩放还是默认值1.0，则应用最优缩放
+                if (currentScale === 1.0) {
+                    currentScale = optimalScale;
+                    myConsole.log(`[calculateOptimalScale] 应用最优缩放到 currentScale: ${currentScale.toFixed(3)}`);
+                    updateZoomDisplay();
+                }
+
+                myConsole.log('[calculateOptimalScale] ========== 最优缩放计算完成 ==========');
+            }).catch(function (error) {
+                myConsole.error('[calculateOptimalScale] 计算最优缩放时出错:', error);
+            });
+        }
+
+        // 初始页面加载：首次加载3页（第1、2、3页）
+        function loadInitialPages() {
+            myConsole.log('[loadInitialPages] ========== 开始初始页面加载 ==========');
+            myConsole.log('[loadInitialPages] pdfDoc:', pdfDoc);
+            myConsole.log('[loadInitialPages] totalPages:', totalPages);
+            myConsole.log('[loadInitialPages] currentPage:', currentPage);
+            myConsole.log('[loadInitialPages] isRendering:', isRendering);
+            myConsole.log('[loadInitialPages] loadingQueue:', loadingQueue);
+            myConsole.log('[loadInitialPages] renderedPages:', renderedPages);
+
+            if (!pdfDoc) {
+                myConsole.error('[loadInitialPages] 错误: pdfDoc 未定义！');
+                return;
+            }
+
+            if (totalPages === 0) {
+                myConsole.error('[loadInitialPages] 错误: totalPages 为 0！');
+                return;
+            }
+
+            // 首次加载时，计算最优缩放倍数
+            if (optimalScale === 1.0) {
+                calculateOptimalScale();
+            }
+
+            if (!isNeedLoad) {
+                // 不按需加载：一次性渲染全部页面
+                myConsole.log(`[loadInitialPages] isNeedLoad=false，开始一次性渲染全部 ${totalPages} 页...`);
+
+                // 第1页立即开始渲染
+                myConsole.log('[loadInitialPages] 开始渲染第1页...');
+                renderPage(1);
+
+                // 将剩余所有页面加入队列（按顺序）
+                for (let i = 2; i <= totalPages; i++) {
+                    if (!loadingQueue.includes(i) && !renderedPages.has(i)) {
+                        loadingQueue.push(i);
+                    }
+                }
+
+                myConsole.log(`[loadInitialPages] 已将第2-${totalPages}页加入队列，共 ${loadingQueue.length} 页待渲染`);
+            } else {
+                // 按需加载：只加载前3页
+                myConsole.log('[loadInitialPages] isNeedLoad=true，按需加载模式，只加载前3页');
+
+                // 初始加载：直接加载前3页
+                // 第1页立即开始渲染，第2、3页加入队列等待渲染
+                myConsole.log('[loadInitialPages] 开始渲染第1页...');
+                renderPage(1);
+
+                // 将第2、3页加入队列（按顺序）
+                if (!loadingQueue.includes(2) && !renderedPages.has(2)) {
+                    myConsole.log('[loadInitialPages] 将第2页加入队列');
+                    loadingQueue.push(2);
+                }
+                if (!loadingQueue.includes(3) && !renderedPages.has(3)) {
+                    myConsole.log('[loadInitialPages] 将第3页加入队列');
+                    loadingQueue.push(3);
+                }
+            }
+
+            myConsole.log('[loadInitialPages] 当前队列:', loadingQueue);
+
+            // 更新按钮状态
+            updatePagination();
+
+            // 更新缩放显示（确保显示正确的缩放比例）
+            updateZoomDisplay();
+
+            myConsole.log('[loadInitialPages] ========== 初始页面加载完成 ==========');
+            // 确保初始加载的3页都会被处理
+            // 第1页渲染完成后会自动处理队列中的第2页，第2页完成后处理第3页
+        }
+
+        // 创建页面占位符（固定大小）
+        // 获取上一页的高宽（用于占位符）
+        function getPreviousPageSize(pageNum) {
+            let width = 595 * currentScale; // 默认宽度
+            let height = 842 * currentScale; // 默认高度
+
+            if (pageNum > 1) {
+                const prevPageNum = pageNum - 1;
+                const prevPageContainer = document.getElementById(`page-${prevPageNum}`);
+                if (prevPageContainer) {
+                    // 优先使用上一页的canvas尺寸
+                    const prevCanvas = prevPageContainer.querySelector('.page-canvas');
+                    if (prevCanvas) {
+                        width = prevCanvas.width;
+                        height = prevCanvas.height;
+                    } else {
+                        // 如果没有canvas，使用上一页占位符的尺寸
+                        const prevPlaceholder = prevPageContainer.querySelector('.page-loading');
+                        if (prevPlaceholder) {
+                            width = prevPlaceholder.offsetWidth || width;
+                            height = prevPlaceholder.offsetHeight || height;
+                        }
+                    }
+                }
+            }
+
+            return { width, height };
+        }
+
+        function createPagePlaceholder(pageNum) {
+            const pageContainer = document.createElement('div');
+            pageContainer.className = 'page-container';
+            pageContainer.id = `page-${pageNum}`;
+
+            // 创建固定大小的占位符
+            const pagePlaceholder = document.createElement('div');
+            pagePlaceholder.className = 'page-loading';
+
+            // 获取上一页的高宽（如果存在）
+            const { width: placeholderWidth, height: placeholderHeight } = getPreviousPageSize(pageNum);
+            myConsole.log(`[createPagePlaceholder] 第 ${pageNum} 页占位符尺寸: ${placeholderWidth}x${placeholderHeight}`);
+
+            pagePlaceholder.style.width = placeholderWidth + 'px';
+            pagePlaceholder.style.height = placeholderHeight + 'px';
+            pagePlaceholder.style.minHeight = placeholderHeight + 'px';
+            pagePlaceholder.innerHTML = `
+                <div class="spinner"></div>
+                <p>正在加载第 ${pageNum} 页...</p>
+            `;
+            pageContainer.appendChild(pagePlaceholder);
+
+            // 按页码顺序插入到正确位置
+            insertPageContainer(pageContainer, pageNum);
+
+            return { pageContainer, pagePlaceholder };
+        }
+
+        // 计算双页视图下的每行页数
+        function calculatePagesPerRow() {
+            if (viewMode !== 'two-page') {
+                return 1; // 单页视图，每行1页
+            }
+
+            // 如果 PDF 还未加载，返回默认值
+            if (!pdfDoc || totalPages === 0) {
+                return 2; // 默认双页视图每行2页
+            }
+
+            const containerWidth = mainContent.clientWidth - 60; // 减去padding
+            let pagesPerRow = 2; // 默认双页视图每行2页
+
+            // 尝试从已渲染的页面获取实际宽度
+            let pageWidth = 0;
+            for (let i = 1; i <= totalPages; i++) {
+                const pageContainer = document.getElementById(`page-${i}`);
+                if (pageContainer) {
+                    const pageCanvas = pageContainer.querySelector('.page-canvas');
+                    if (pageCanvas && pageCanvas.offsetWidth > 0) {
+                        pageWidth = pageCanvas.offsetWidth;
+                        break;
+                    }
+                }
+            }
+
+            // 如果找到了已渲染的页面宽度，计算每行页数
+            if (pageWidth > 0) {
+                const gap = 25; // 页面之间的间距（从CSS的gap: 25px）
+                pagesPerRow = Math.floor((containerWidth + gap) / (pageWidth + gap));
+                pagesPerRow = Math.max(1, pagesPerRow);
+            } else if (pdfDoc) {
+                // 如果页面未渲染，使用PDF页面信息和当前缩放比例估算
+                const estimatedPageWidth = 595 * currentScale; // A4宽度595px * 缩放比例
+                const gap = 25;
+                if (estimatedPageWidth > 0) {
+                    pagesPerRow = Math.floor((containerWidth + gap) / (estimatedPageWidth + gap));
+                    pagesPerRow = Math.max(1, pagesPerRow);
+                }
+            }
+
+            return pagesPerRow;
+        }
+
+        // 跳转到指定页面
+        function jumpToPage(pageNum) {
+            myConsole.log(`[jumpToPage] ========== 开始跳转到第 ${pageNum} 页 ==========`);
+
+            // 如果 PDF 还未加载完成，直接返回
+            if (!pdfDoc || totalPages === 0) {
+                myConsole.warn(`[jumpToPage] PDF 还未加载完成，无法跳转到第 ${pageNum} 页`);
+                return;
+            }
+            if (pageNum < 1 || pageNum > totalPages) {
+                myConsole.warn(`[jumpToPage] 页码 ${pageNum} 超出范围 (1-${totalPages})`);
+                return;
+            }
+
+            const oldCurrentPage = currentPage;
+            myConsole.log(`[jumpToPage] 当前页: ${oldCurrentPage}, 目标页: ${pageNum}, 最大已加载页: ${maxLoadedPage}`);
+
+            // 更新当前页
+            currentPage = pageNum;
+            updatePagination();
+
+            // 如果不按需加载，跳过预加载逻辑（所有页面已在队列中）
+            if (!isNeedLoad) {
+                myConsole.log(`[jumpToPage] isNeedLoad=false，跳过预加载逻辑（所有页面已在队列中）`);
+
+                // 直接滚动到目标页面
+                function attemptScroll(attempts = 0) {
+                    const maxAttempts = 10;
+                    const targetPageElement = document.getElementById(`page-${pageNum}`);
+
+                    if (targetPageElement) {
+                        const rect = targetPageElement.getBoundingClientRect();
+                        const isVisible = rect.width > 0 && rect.height > 0;
+
+                        if (isVisible) {
+                            targetPageElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            return;
+                        }
+                    }
+
+                    if (attempts < maxAttempts) {
+                        setTimeout(() => attemptScroll(attempts + 1), 50);
+                    } else {
+                        myConsole.warn(`[jumpToPage] 无法滚动到第 ${pageNum} 页，已达到最大重试次数`);
+                    }
+                }
+
+                requestAnimationFrame(() => {
+                    attemptScroll();
+                });
+
+                myConsole.log(`[jumpToPage] ========== 跳转完成 ==========`);
+                return;
+            }
+
+            // 计算预加载页数（后2行+前2行）
+            let preloadAfter = 2;  // 后2页
+            let preloadBefore = 2; // 前2页
+
+            // 双页视图模式下，预加载页数应为每行页数*2行
+            if (viewMode === 'two-page') {
+                const pagesPerRow = calculatePagesPerRow();
+                preloadAfter = pagesPerRow * 2;  // 后2行
+                preloadBefore = pagesPerRow * 2; // 前2行
+                myConsole.log(`[jumpToPage] 双页视图模式，每行 ${pagesPerRow} 页，预加载: 前${preloadBefore}页，后${preloadAfter}页`);
+            }
+
+            // 1. 检查目标页是否已加载
+            const targetPageElement = document.getElementById(`page-${pageNum}`);
+            const isTargetRendered = renderedPages.has(pageNum);
+            const isTargetInQueue = loadingQueue.includes(pageNum);
+            const hasTargetCanvas = targetPageElement && targetPageElement.querySelector('.page-canvas');
+
+            myConsole.log(`[jumpToPage] 目标页状态: 已渲染=${isTargetRendered}, 在队列=${isTargetInQueue}, 有画布=${hasTargetCanvas}`);
+
+            // 2. 如果目标页未加载，异步将目标页加入加载队列
+            if (!isTargetRendered && !isTargetInQueue && !hasTargetCanvas) {
+                myConsole.log(`[jumpToPage] 目标页未加载，异步加入队列`);
+                // 使用 setTimeout 异步加入队列
+                setTimeout(() => {
+                    // 再次检查，避免重复加入
+                    if (!renderedPages.has(pageNum) && !loadingQueue.includes(pageNum)) {
+                        const targetContainer = document.getElementById(`page-${pageNum}`);
+                        const hasCanvas = targetContainer && targetContainer.querySelector('.page-canvas');
+                        if (!hasCanvas) {
+                            preloadPage(pageNum);
+                        }
+                    }
+                }, 0);
+            }
+
+            // 3. 从当前最大已加载页开始生成占位页，一直到目标页，再生成后2行的占位页
+            const placeholderStart = Math.max(1, maxLoadedPage + 1); // 从最大已加载页+1开始
+            const placeholderEnd = Math.min(totalPages, pageNum + preloadAfter); // 到目标页+后2行
+
+            myConsole.log(`[jumpToPage] 生成占位页范围: ${placeholderStart} 到 ${placeholderEnd}`);
+
+            for (let i = placeholderStart; i <= placeholderEnd; i++) {
+                const pageContainer = document.getElementById(`page-${i}`);
+                const hasCanvas = pageContainer && pageContainer.querySelector('.page-canvas');
+                const isRendered = renderedPages.has(i);
+
+                // 如果页面未渲染且没有容器，创建占位符
+                if (!isRendered && !hasCanvas && !pageContainer) {
+                    myConsole.log(`[jumpToPage] 创建第 ${i} 页占位符`);
+                    createPagePlaceholder(i);
+                } else if (pageContainer && !hasCanvas && !isRendered) {
+                    // 如果容器存在但没有画布，确保有占位符
+                    const existingPlaceholder = pageContainer.querySelector('.page-loading');
+                    if (!existingPlaceholder) {
+                        myConsole.log(`[jumpToPage] 为第 ${i} 页添加占位符`);
+                        const pagePlaceholder = document.createElement('div');
+                        pagePlaceholder.className = 'page-loading';
+                        const { width: placeholderWidth, height: placeholderHeight } = getPreviousPageSize(i);
+                        pagePlaceholder.style.width = placeholderWidth + 'px';
+                        pagePlaceholder.style.height = placeholderHeight + 'px';
+                        pagePlaceholder.style.minHeight = placeholderHeight + 'px';
+                        pagePlaceholder.innerHTML = `
+                            <div class="spinner"></div>
+                            <p>正在加载第 ${i} 页...</p>
+                        `;
+                        pageContainer.appendChild(pagePlaceholder);
+                    }
+                }
+            }
+
+            // 4. 立即滚动到目标页面
+            function attemptScroll(attempts = 0) {
+                const maxAttempts = 10;
+                const targetPageElement = document.getElementById(`page-${pageNum}`);
+
+                if (targetPageElement) {
+                    const rect = targetPageElement.getBoundingClientRect();
+                    const isVisible = rect.width > 0 && rect.height > 0;
+
+                    if (isVisible) {
+                        myConsole.log(`[jumpToPage] 滚动到第 ${pageNum} 页 (尝试 ${attempts + 1})`);
+                        targetPageElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        return;
+                    }
+                }
+
+                if (attempts < maxAttempts) {
+                    setTimeout(() => attemptScroll(attempts + 1), 50);
+                } else {
+                    myConsole.warn(`[jumpToPage] 无法滚动到第 ${pageNum} 页，已达到最大重试次数`);
+                }
+            }
+
+            // 立即滚动
+            requestAnimationFrame(() => {
+                attemptScroll();
+            });
+
+            // 5. 延迟100毫秒后，将当前页后2行+前2行加入队列
+            setTimeout(() => {
+                const preloadStart = Math.max(1, pageNum - preloadBefore);
+                const preloadEnd = Math.min(totalPages, pageNum + preloadAfter);
+
+                myConsole.log(`[jumpToPage] 延迟100ms后，开始预加载范围: ${preloadStart} 到 ${preloadEnd}`);
+
+                // 收集需要预加载的页面
+                const pagesToPreload = [];
+                for (let i = preloadStart; i <= preloadEnd; i++) {
+                    // 检查是否已经加载或已经在队列中
+                    const isRendered = renderedPages.has(i);
+                    const inQueue = loadingQueue.includes(i);
+                    const pageContainer = document.getElementById(`page-${i}`);
+                    const hasCanvas = pageContainer && pageContainer.querySelector('.page-canvas');
+
+                    if (!isRendered && !inQueue && !hasCanvas) {
+                        pagesToPreload.push(i);
+                    }
+                }
+
+                myConsole.log(`[jumpToPage] 需要预加载的页面: [${pagesToPreload.join(', ')}]`);
+
+                // 优先加载目标页，然后加载其他页面
+                if (pagesToPreload.includes(pageNum)) {
+                    // 目标页优先
+                    preloadPage(pageNum);
+                    pagesToPreload.filter(p => p !== pageNum).forEach(p => preloadPage(p));
+                } else {
+                    // 其他页面按顺序加载
+                    pagesToPreload.forEach(p => preloadPage(p));
+                }
+
+                // 6. 如果当前没有在渲染，开始渲染队列中的第一个页面
+                if (!isRendering && loadingQueue.length > 0) {
+                    const nextPage = loadingQueue.shift();
+                    myConsole.log(`[jumpToPage] 开始渲染队列中的第 ${nextPage} 页`);
+                    renderPage(nextPage);
+                }
+            }, 100);
+
+            myConsole.log(`[jumpToPage] ========== 跳转完成 ==========`);
+        }
+
+        // 检查所有页面是否已渲染完成
+        function checkAllPagesRendered() {
+            if (totalPages === 0) {
+                return false;
+            }
+
+            // 检查是否所有页面都已渲染
+            const allRendered = renderedPages.size === totalPages;
+
+            if (allRendered && !allPagesRenderedEventFired) {
+                allPagesRenderedEventFired = true;
+                myConsole.log(`[checkAllPagesRendered] 所有页面已渲染完成！共 ${totalPages} 页`);
+
+                // 触发自定义事件
+                const event = new CustomEvent('allPagesRendered', {
+                    detail: {
+                        totalPages: totalPages,
+                        renderedPages: renderedPages.size,
+                        timestamp: Date.now()
+                    }
+                });
+                document.dispatchEvent(event);
+
+                // 调用回调函数（如果已设置）
+                if (typeof allPagesRenderedCallback === 'function') {
+                    try {
+                        allPagesRenderedCallback({
+                            totalPages: totalPages,
+                            renderedPages: renderedPages.size,
+                            timestamp: Date.now()
+                        });
+                    } catch (error) {
+                        myConsole.error('[checkAllPagesRendered] 回调函数执行出错:', error);
+                    }
+                }
+            }
+
+            return allRendered;
+        }
+
+        // 设置全部页面渲染完成的回调函数
+        function setAllPagesRenderedCallback(callback) {
+            if (typeof callback === 'function') {
+                allPagesRenderedCallback = callback;
+                myConsole.log('[setAllPagesRenderedCallback] 已设置全部页面渲染完成回调函数');
+            } else {
+                myConsole.warn('[setAllPagesRenderedCallback] 回调函数必须是函数类型');
+            }
+        }
+        if (isGetTextContent) {
+            setAllPagesRenderedCallback(function (data) {
+                if (parent) {
+                    setTimeout(() => {
+                        myConsole.log('[setAllPagesRenderedCallback] 发送全部页面渲染完成消息，反馈文本内容', data, textContents);
+                        parent.postMessage({
+                            type: 'allPagesRendered',
+                            data: data,
+                            textContents: textContents
+                        }, '*');
+                    }, 100);
+                }
+            });
+        }
+
+        // 渲染文本层（用于文字选择和复制）
+        function renderTextLayer(pageNum, pageContainer, canvas, textContent, viewport) {
+            // 创建文本层容器
+            const textLayerDiv = document.createElement('div');
+            textLayerDiv.className = 'textLayer';
+            textLayerDiv.style.width = canvas.width + 'px';
+            textLayerDiv.style.height = canvas.height + 'px';
+
+            // 手动创建文本层（兼容所有PDF.js版本）
+            const textContentItems = textContent.items;
+            const viewportTransform = viewport.transform;
+            let texts = '';
+
+            textContentItems.forEach(function (textItem) {
+                // textItem.transform 是一个6元素矩阵 [a, b, c, d, e, f]
+                // 其中 a, b, c, d 是旋转和缩放，e, f 是平移
+                const itemTransform = textItem.transform;
+
+                // 计算字体大小（从transform矩阵）
+                // itemTransform[0] 和 itemTransform[1] 是PDF坐标系中的值，需要应用viewport.scale
+                const fontSizeInPDF = Math.sqrt(itemTransform[0] * itemTransform[0] + itemTransform[1] * itemTransform[1]);
+                const fontSize = fontSizeInPDF * viewport.scale;
+
+                // 计算文本宽度和高度
+                // textItem.width 和 textItem.height 是PDF坐标系中的值（单位：点，1点=1/72英寸）
+                let textWidth = textItem.width;
+                let textHeight = textItem.height;
+
+                // 如果没有width/height，从transform矩阵计算
+                if (!textWidth || textWidth === 0) {
+                    // 文本宽度 = transform[0]（水平缩放）× 字符数
+                    // itemTransform[0] 是PDF坐标系中的水平缩放因子，需要应用viewport.scale
+                    // 但更准确的是：字符宽度 = transform[0] / viewport.scale（PDF坐标） × viewport.scale（屏幕坐标）
+                    // 实际上，transform[0] 在PDF坐标系中，所以需要乘以viewport.scale
+                    const charWidthInPDF = Math.abs(itemTransform[0]);
+                    textWidth = charWidthInPDF * textItem.str.length * viewport.scale;
+                } else {
+                    // 如果有width，需要应用viewport的scale
+                    textWidth = textWidth * viewport.scale;
+                }
+
+                if (!textHeight || textHeight === 0) {
+                    // 文本高度 = transform[3]（垂直缩放，通常是负数）
+                    // itemTransform[3] 是PDF坐标系中的垂直缩放因子，需要应用viewport.scale
+                    const heightInPDF = Math.abs(itemTransform[3]) || fontSize;
+                    textHeight = heightInPDF * viewport.scale;
+                } else {
+                    // 如果有height，需要应用viewport的scale
+                    textHeight = textHeight * viewport.scale;
+                }
+
+                // 增加一些容差，确保选择区域能完全覆盖文字
+                // 宽度增加5%，高度增加10%
+                textWidth = textWidth * 1.05;
+                textHeight = textHeight * 1.1;
+
+                // 应用viewport的transform到文本位置
+                const x = itemTransform[4]; // 原始x坐标（PDF坐标系）
+                const y = itemTransform[5]; // 原始y坐标（PDF坐标系）
+
+                // 应用viewport变换到屏幕坐标
+                const tx = viewportTransform[0] * x + viewportTransform[2] * y + viewportTransform[4];
+                const ty = viewportTransform[1] * x + viewportTransform[3] * y + viewportTransform[5];
+
+                // 计算旋转角度
+                const angle = Math.atan2(itemTransform[1], itemTransform[0]);
+
+                // 创建文本span
+                const span = document.createElement('span');
+                span.textContent = textItem.str;
+                span.style.position = 'absolute';
+                span.style.left = tx + 'px';
+                span.style.top = ty + 'px';
+                span.style.fontSize = fontSize + 'px';
+                span.style.lineHeight = textHeight + 'px';
+                span.style.width = textWidth + 'px';
+                span.style.height = textHeight + 'px';
+                span.style.fontFamily = textItem.fontName || 'sans-serif';
+                span.style.whiteSpace = 'pre';
+                span.style.cursor = 'text';
+                span.style.color = 'transparent';
+                span.style.overflow = 'visible';
+                span.style.display = 'inline-block';
+                span.style.verticalAlign = 'baseline';
+                if (isGetTextContent) {
+                    texts += textItem.str;
+                }
+                // 应用旋转（如果有）
+                if (Math.abs(angle) > 0.001) {
+                    span.style.transform = `rotate(${angle}rad)`;
+                    span.style.transformOrigin = '0% 0%';
+                }
+
+                textLayerDiv.appendChild(span);
+            });
+            if (isGetTextContent) {
+                textContents[pageNum] = texts;
+            }
+
+            // 将文本层添加到页面容器（放在canvas后面，这样文本层在上层）
+            pageContainer.appendChild(textLayerDiv);
+            myConsole.log(`[renderTextLayer] 第 ${pageNum} 页文本层渲染完成，共 ${textContentItems.length} 个文本项`);
+        }
+
+        // 渲染指定页面
+        function renderPage(pageNum) {
+            myConsole.log(`[renderPage] ========== 开始渲染第 ${pageNum} 页 ==========`);
+            myConsole.log(`[renderPage] 页面是否已渲染:`, renderedPages.has(pageNum));
+            myConsole.log(`[renderPage] 当前渲染状态:`, isRendering);
+            myConsole.log(`[renderPage] pdfDoc:`, pdfDoc);
+            myConsole.log(`[renderPage] totalPages:`, totalPages);
+
+            if (renderedPages.has(pageNum)) {
+                myConsole.log(`[renderPage] 第 ${pageNum} 页已渲染，跳过`);
+                return;
+            }
+
+            if (!pdfDoc) {
+                myConsole.error(`[renderPage] 错误: pdfDoc 未定义，无法渲染第 ${pageNum} 页`);
+                return;
+            }
+
+            // 如果正在渲染其他页面，加入队列
+            if (isRendering) {
+                myConsole.log(`[renderPage] 正在渲染其他页面，将第 ${pageNum} 页加入队列`);
+                if (!loadingQueue.includes(pageNum)) {
+                    loadingQueue.push(pageNum);
+                }
+                return;
+            }
+
+            isRendering = true;
+            myConsole.log(`[renderPage] 开始渲染第 ${pageNum} 页...`);
+
+            // 检查页面容器是否已存在（可能已创建但未渲染）
+            let pageContainer = document.getElementById(`page-${pageNum}`);
+            let pagePlaceholder = null;
+
+            if (!pageContainer) {
+                // 创建页面容器和占位符
+                const result = createPagePlaceholder(pageNum);
+                pageContainer = result.pageContainer;
+                pagePlaceholder = result.pagePlaceholder;
+            } else {
+                // 如果容器已存在，查找占位符
+                pagePlaceholder = pageContainer.querySelector('.page-loading');
+                if (!pagePlaceholder) {
+                    // 如果占位符不存在，创建一个（但不创建新容器）
+                    pagePlaceholder = document.createElement('div');
+                    pagePlaceholder.className = 'page-loading';
+                    const { width: placeholderWidth, height: placeholderHeight } = getPreviousPageSize(pageNum);
+                    pagePlaceholder.style.width = placeholderWidth + 'px';
+                    pagePlaceholder.style.height = placeholderHeight + 'px';
+                    pagePlaceholder.style.minHeight = placeholderHeight + 'px';
+                    pagePlaceholder.innerHTML = `
+                        <div class="spinner"></div>
+                        <p>正在加载第 ${pageNum} 页...</p>
+                    `;
+                    pageContainer.appendChild(pagePlaceholder);
+                }
+            }
+
+            // 获取页面（这里会按需加载页面数据）
+            myConsole.log(`[renderPage] 调用 pdfDoc.getPage(${pageNum})...`);
+            pdfDoc.getPage(pageNum).then(function (page) {
+                myConsole.log(`[renderPage] 成功获取第 ${pageNum} 页对象:`, page);
+
+                // 先获取文本内容，确保字体和CMap数据已加载
+                // 这可以触发字体和CMap的加载，确保渲染时字体可用
+                myConsole.log(`[renderPage] 预加载第 ${pageNum} 页的文本内容（触发字体加载）...`);
+                const textContentPromise = page.getTextContent().catch(function (e) {
+                    myConsole.warn(`[renderPage] 获取第 ${pageNum} 页文本内容时出错（可能没有文本）:`, e);
+                    return { items: [] }; // 返回空文本内容
+                });
+
+                // 使用当前的缩放和旋转设置
+                const viewport = page.getViewport({
+                    scale: currentScale,
+                    rotation: currentRotation
+                });
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+                canvas.className = 'page-canvas';
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+
+                // 等待文本内容加载完成（这会触发字体和CMap的加载）
+                textContentPromise.then(function (textContent) {
+                    myConsole.log(`[renderPage] 第 ${pageNum} 页文本内容已加载，文本项数量: ${textContent.items.length}`);
+
+                    // 渲染PDF页面到canvas
+                    // PDF.js默认会渲染所有内容（包括文字），但需要确保配置正确
+                    const renderContext = {
+                        canvasContext: context,
+                        viewport: viewport
+                        // 注意：PDF.js会自动渲染文字，不需要额外配置
+                        // 如果文字不显示，可能是字体加载问题或PDF文件本身的问题
+                    };
+
+                    myConsole.log(`[renderPage] 开始渲染第 ${pageNum} 页到canvas...`);
+                    myConsole.log(`[renderPage] Canvas尺寸: ${canvas.width}x${canvas.height}`);
+                    myConsole.log(`[renderPage] Viewport scale: ${viewport.scale}`);
+
+                    // 确保字体加载完成后再渲染
+                    // PDF.js会自动处理字体加载，但我们可以添加一些检查
+                    const renderTask = page.render(renderContext);
+
+                    // 监听渲染进度（如果有）
+                    if (renderTask.onProgress) {
+                        renderTask.onProgress = function (progress) {
+                            myConsole.log(`[renderPage] 第 ${pageNum} 页渲染进度:`, progress);
+                        };
+                    }
+
+                    renderTask.promise.then(function () {
+                        myConsole.log(`[renderPage] 第 ${pageNum} 页canvas渲染完成`);
+                        myConsole.log(`[renderPage] Canvas最终尺寸: ${canvas.width}x${canvas.height}`);
+
+                        // 在移除占位符之前，先更新占位符的高宽为实际canvas的高宽
+                        // 这样可以避免页面高度突然变化
+                        if (pagePlaceholder && pagePlaceholder.parentNode) {
+                            const currentPlaceholderWidth = pagePlaceholder.offsetWidth;
+                            const currentPlaceholderHeight = pagePlaceholder.offsetHeight;
+
+                            // 如果占位符尺寸与canvas尺寸不同，先更新占位符尺寸
+                            if (Math.abs(currentPlaceholderWidth - canvas.width) > 1 ||
+                                Math.abs(currentPlaceholderHeight - canvas.height) > 1) {
+                                myConsole.log(`[renderPage] 更新占位符尺寸: ${currentPlaceholderWidth}x${currentPlaceholderHeight} -> ${canvas.width}x${canvas.height}`);
+                                pagePlaceholder.style.width = canvas.width + 'px';
+                                pagePlaceholder.style.height = canvas.height + 'px';
+                                pagePlaceholder.style.minHeight = canvas.height + 'px';
+
+                                // 等待一帧，让浏览器应用新的尺寸
+                                requestAnimationFrame(() => {
+                                    if (pagePlaceholder && pagePlaceholder.parentNode) {
+                                        pageContainer.removeChild(pagePlaceholder);
+                                        pageContainer.appendChild(canvas);
+
+                                        // canvas已添加到DOM，现在可以更新缩略图
+                                        // 标记页面已渲染
+                                        renderedPages.add(pageNum);
+                                        maxLoadedPage = Math.max(maxLoadedPage, pageNum);
+                                        isRendering = false;
+                                        myConsole.log(`第 ${pageNum} 页渲染完成 (已加载: ${maxLoadedPage}/${totalPages})`);
+
+                                        // 更新缩略图
+                                        updateThumbnail(pageNum);
+
+                                        // 渲染文本层（用于文字选择和复制）
+                                        // 使用之前已经加载的textContent，避免重复加载
+                                        myConsole.log(`[renderPage] 开始渲染第 ${pageNum} 页文本层...`);
+                                        Promise.resolve(textContent).then(function (textContent) {
+                                            renderTextLayer(pageNum, pageContainer, canvas, textContent, viewport);
+                                        }).catch(function (error) {
+                                            myConsole.warn(`[renderPage] 第 ${pageNum} 页文本层渲染失败:`, error);
+                                        });
+
+                                        // 处理队列中的下一个页面
+                                        if (loadingQueue.length > 0) {
+                                            const nextPage = loadingQueue.shift();
+                                            renderPage(nextPage);
+                                        } else {
+                                            // 队列为空，检查是否所有页面都已渲染完成
+                                            checkAllPagesRendered();
+                                        }
+                                    }
+                                });
+
+                                // 提前返回，避免执行后面的代码
+                                return;
+                            } else {
+                                // 尺寸相同，直接移除占位符
+                                pageContainer.removeChild(pagePlaceholder);
+                                pageContainer.appendChild(canvas);
+                            }
+                        } else {
+                            // 没有占位符，直接添加canvas
+                            pageContainer.appendChild(canvas);
+                        }
+
+                        // 标记页面已渲染（canvas已添加到DOM）
+                        renderedPages.add(pageNum);
+                        maxLoadedPage = Math.max(maxLoadedPage, pageNum);
+                        isRendering = false;
+                        myConsole.log(`第 ${pageNum} 页渲染完成 (已加载: ${maxLoadedPage}/${totalPages})`);
+
+                        // 更新缩略图
+                        updateThumbnail(pageNum);
+
+                        // 注意：不在这里触发预加载，避免连锁反应
+                        // 预加载只在用户交互（滚动、点击按钮）时触发
+
+                        // 处理队列中的下一个页面
+                        if (loadingQueue.length > 0) {
+                            const nextPage = loadingQueue.shift();
+                            renderPage(nextPage);
+                        } else {
+                            // 队列为空，检查是否所有页面都已渲染完成
+                            checkAllPagesRendered();
+                        }
+
+                        // 渲染文本层（用于文字选择和复制）
+                        // 使用之前已经加载的textContent，避免重复加载
+                        myConsole.log(`[renderPage] 开始渲染第 ${pageNum} 页文本层...`);
+                        Promise.resolve(textContent).then(function (textContent) {
+                            renderTextLayer(pageNum, pageContainer, canvas, textContent, viewport);
+                        }).catch(function (error) {
+                            myConsole.warn(`[renderPage] 第 ${pageNum} 页文本层渲染失败:`, error);
+                        });
+
+                        // 添加页码指示（如果不存在）
+                        let pageNumber = pageContainer.querySelector('.page-number');
+                        if (!pageNumber) {
+                            pageNumber = document.createElement('div');
+                            pageNumber.className = 'page-number';
+                            pageNumber.textContent = `第 ${pageNum} 页`;
+                            pageContainer.appendChild(pageNumber);
+                        }
+
+                        // 标记页面已渲染
+                        renderedPages.add(pageNum);
+                        maxLoadedPage = Math.max(maxLoadedPage, pageNum);
+                        isRendering = false;
+                        myConsole.log(`第 ${pageNum} 页渲染完成 (已加载: ${maxLoadedPage}/${totalPages})`);
+
+                        // 更新缩略图
+                        updateThumbnail(pageNum);
+
+                        // 注意：不在这里触发预加载，避免连锁反应
+                        // 预加载只在用户交互（滚动、点击按钮）时触发
+
+                        // 处理队列中的下一个页面
+                        if (loadingQueue.length > 0) {
+                            const nextPage = loadingQueue.shift();
+                            renderPage(nextPage);
+                        }
+                    }).catch(function (error) {
+                        myConsole.error(`[renderPage] 渲染第 ${pageNum} 页canvas时出错:`, error);
+                        pagePlaceholder.innerHTML = `<p style="color: #e74c3c;">第 ${pageNum} 页加载失败: ${error.message}</p>`;
+                        isRendering = false;
+
+                        // 继续处理队列
+                        if (loadingQueue.length > 0) {
+                            const nextPage = loadingQueue.shift();
+                            myConsole.log(`[renderPage] 第 ${pageNum} 页canvas渲染失败，从队列中取出第 ${nextPage} 页继续渲染（剩余队列长度: ${loadingQueue.length}）`);
+                            renderPage(nextPage);
+                        } else {
+                            myConsole.log(`[renderPage] 第 ${pageNum} 页canvas渲染失败，队列为空，停止渲染`);
+                        }
+                    });
+                }).catch(function (error) {
+                    myConsole.error(`[renderPage] 获取文本内容时出错:`, error);
+                    // 即使文本内容获取失败，也尝试渲染canvas
+                    const renderContext = {
+                        canvasContext: context,
+                        viewport: viewport
+                    };
+                    const renderTask = page.render(renderContext);
+                    renderTask.promise.then(function () {
+                        myConsole.log(`[renderPage] 第 ${pageNum} 页canvas渲染完成（无文本内容）`);
+                        myConsole.log(`[renderPage] Canvas最终尺寸: ${canvas.width}x${canvas.height}`);
+
+                        // 在移除占位符之前，先更新占位符的高宽为实际canvas的高宽
+                        if (pagePlaceholder && pagePlaceholder.parentNode) {
+                            const currentPlaceholderWidth = pagePlaceholder.offsetWidth;
+                            const currentPlaceholderHeight = pagePlaceholder.offsetHeight;
+
+                            // 如果占位符尺寸与canvas尺寸不同，先更新占位符尺寸
+                            if (Math.abs(currentPlaceholderWidth - canvas.width) > 1 ||
+                                Math.abs(currentPlaceholderHeight - canvas.height) > 1) {
+                                myConsole.log(`[renderPage] 更新占位符尺寸: ${currentPlaceholderWidth}x${currentPlaceholderHeight} -> ${canvas.width}x${canvas.height}`);
+                                pagePlaceholder.style.width = canvas.width + 'px';
+                                pagePlaceholder.style.height = canvas.height + 'px';
+                                pagePlaceholder.style.minHeight = canvas.height + 'px';
+
+                                // 等待一帧，让浏览器应用新的尺寸
+                                requestAnimationFrame(() => {
+                                    if (pagePlaceholder && pagePlaceholder.parentNode) {
+                                        pageContainer.removeChild(pagePlaceholder);
+                                        pageContainer.appendChild(canvas);
+
+                                        // canvas已添加到DOM，现在可以更新缩略图
+                                        renderedPages.add(pageNum);
+                                        maxLoadedPage = Math.max(maxLoadedPage, pageNum);
+                                        isRendering = false;
+
+                                        // 更新缩略图
+                                        updateThumbnail(pageNum);
+
+                                        // 处理队列中的下一个页面
+                                        if (loadingQueue.length > 0) {
+                                            const nextPage = loadingQueue.shift();
+                                            myConsole.log(`[renderPage] 第 ${pageNum} 页渲染完成（无文本内容），从队列中取出第 ${nextPage} 页继续渲染（剩余队列长度: ${loadingQueue.length}）`);
+                                            renderPage(nextPage);
+                                        } else {
+                                            myConsole.log(`[renderPage] 第 ${pageNum} 页渲染完成（无文本内容），队列为空，停止渲染`);
+                                        }
+                                    }
+                                });
+
+                                // 提前返回，避免执行后面的代码
+                                return;
+                            } else {
+                                // 尺寸相同，直接移除占位符
+                                pageContainer.removeChild(pagePlaceholder);
+                                pageContainer.appendChild(canvas);
+                            }
+                        } else {
+                            // 没有占位符，直接添加canvas
+                            pageContainer.appendChild(canvas);
+                        }
+
+                        renderedPages.add(pageNum);
+                        maxLoadedPage = Math.max(maxLoadedPage, pageNum);
+                        isRendering = false;
+
+                        // 更新缩略图
+                        updateThumbnail(pageNum);
+
+                        if (loadingQueue.length > 0) {
+                            const nextPage = loadingQueue.shift();
+                            myConsole.log(`[renderPage] 第 ${pageNum} 页渲染完成（无文本内容），从队列中取出第 ${nextPage} 页继续渲染（剩余队列长度: ${loadingQueue.length}）`);
+                            renderPage(nextPage);
+                        } else {
+                            myConsole.log(`[renderPage] 第 ${pageNum} 页渲染完成（无文本内容），队列为空，停止渲染`);
+                            // 队列为空，检查是否所有页面都已渲染完成
+                            checkAllPagesRendered();
+                        }
+                    }).catch(function (renderError) {
+                        myConsole.error(`[renderPage] 渲染失败:`, renderError);
+                        isRendering = false;
+                        if (loadingQueue.length > 0) {
+                            const nextPage = loadingQueue.shift();
+                            myConsole.log(`[renderPage] 第 ${pageNum} 页渲染失败，从队列中取出第 ${nextPage} 页继续渲染（剩余队列长度: ${loadingQueue.length}）`);
+                            renderPage(nextPage);
+                        } else {
+                            myConsole.log(`[renderPage] 第 ${pageNum} 页渲染失败，队列为空，停止渲染`);
+                            // 即使有错误，也检查是否所有页面都已渲染完成
+                            checkAllPagesRendered();
+                        }
+                    });
+                });
+            }).catch(function (error) {
+                myConsole.error(`[renderPage] ========== 获取第 ${pageNum} 页时出错 ==========`);
+                myConsole.error(`[renderPage] 错误对象:`, error);
+                myConsole.error(`[renderPage] 错误消息:`, error.message);
+                myConsole.error(`[renderPage] 错误堆栈:`, error.stack);
+
+                // 确保有占位符显示错误信息
+                if (!pagePlaceholder) {
+                    // 如果占位符不存在，尝试从容器中获取或创建
+                    if (pageContainer) {
+                        pagePlaceholder = pageContainer.querySelector('.page-loading');
+                        if (!pagePlaceholder) {
+                            pagePlaceholder = document.createElement('div');
+                            pagePlaceholder.className = 'page-loading';
+                            const { width: placeholderWidth, height: placeholderHeight } = getPreviousPageSize(pageNum);
+                            pagePlaceholder.style.width = placeholderWidth + 'px';
+                            pagePlaceholder.style.height = placeholderHeight + 'px';
+                            pagePlaceholder.style.minHeight = placeholderHeight + 'px';
+                            pageContainer.appendChild(pagePlaceholder);
+                        }
+                    }
+                }
+
+                if (pagePlaceholder) {
+                    pagePlaceholder.innerHTML = `<p style="color: #e74c3c;">第 ${pageNum} 页获取失败: ${error.message}</p>`;
+                }
+
+                isRendering = false;
+                myConsole.log(`[renderPage] 第 ${pageNum} 页渲染失败，继续处理队列（队列长度: ${loadingQueue.length}）`);
+
+                // 继续处理队列
+                if (loadingQueue.length > 0) {
+                    const nextPage = loadingQueue.shift();
+                    myConsole.log(`[renderPage] 从队列中取出第 ${nextPage} 页继续渲染`);
+                    renderPage(nextPage);
+                } else {
+                    myConsole.log(`[renderPage] 队列为空，停止渲染`);
+                }
+            });
+        }
+
+        // 按页码顺序插入页面容器到DOM
+        function insertPageContainer(pageContainer, pageNum) {
+            const existingContainers = pdfViewer.querySelectorAll('.page-container');
+            let inserted = false;
+
+            // 找到第一个页码大于当前页码的容器，插入到它之前
+            existingContainers.forEach(container => {
+                const existingPageNum = parseInt(container.id.split('-')[1]);
+                if (existingPageNum > pageNum && !inserted) {
+                    pdfViewer.insertBefore(pageContainer, container);
+                    inserted = true;
+                }
+            });
+
+            // 如果没有找到更大的页码，说明应该插入到最后
+            if (!inserted) {
+                pdfViewer.appendChild(pageContainer);
+            }
+        }
+
+        // 预加载页面（不显示，只准备）
+        function preloadPage(pageNum) {
+            // 如果页面已渲染或已在队列中，跳过
+            if (renderedPages.has(pageNum) || loadingQueue.includes(pageNum)) {
+                return;
+            }
+
+            // 检查页面容器是否已存在
+            let pageContainer = document.getElementById(`page-${pageNum}`);
+            const hasCanvas = pageContainer && pageContainer.querySelector('.page-canvas');
+
+            // 如果页面已渲染（有画布），跳过
+            if (hasCanvas) {
+                return;
+            }
+
+            // 如果页面容器不存在，创建占位符显示加载进度
+            if (!pageContainer) {
+                myConsole.log(`[preloadPage] 为第 ${pageNum} 页创建占位符...`);
+                const result = createPagePlaceholder(pageNum);
+                pageContainer = result.pageContainer;
+            } else {
+                // 如果容器存在但没有占位符，创建占位符
+                const existingPlaceholder = pageContainer.querySelector('.page-loading');
+                if (!existingPlaceholder) {
+                    myConsole.log(`[preloadPage] 为第 ${pageNum} 页添加占位符...`);
+                    const pagePlaceholder = document.createElement('div');
+                    pagePlaceholder.className = 'page-loading';
+                    const { width: placeholderWidth, height: placeholderHeight } = getPreviousPageSize(pageNum);
+                    pagePlaceholder.style.width = placeholderWidth + 'px';
+                    pagePlaceholder.style.height = placeholderHeight + 'px';
+                    pagePlaceholder.style.minHeight = placeholderHeight + 'px';
+                    pagePlaceholder.innerHTML = `
+                        <div class="spinner"></div>
+                        <p>正在加载第 ${pageNum} 页...</p>
+                    `;
+                    pageContainer.appendChild(pagePlaceholder);
+                }
+            }
+
+            // 添加到加载队列（按页码排序）
+            if (loadingQueue.length === 0) {
+                loadingQueue.push(pageNum);
+            } else {
+                // 保持队列按页码顺序
+                let inserted = false;
+                for (let i = 0; i < loadingQueue.length; i++) {
+                    if (loadingQueue[i] > pageNum) {
+                        loadingQueue.splice(i, 0, pageNum);
+                        inserted = true;
+                        break;
+                    }
+                }
+                if (!inserted) {
+                    loadingQueue.push(pageNum);
+                }
+            }
+
+            myConsole.log(`[preloadPage] 预加载第 ${pageNum} 页，已加入队列（队列长度: ${loadingQueue.length}）`);
+
+            // 如果当前没有在渲染，开始渲染
+            if (!isRendering) {
+                const nextPage = loadingQueue.shift();
+                renderPage(nextPage);
+            }
+        }
+
+        // 检查是否需要预加载更多页面（按需加载策略）
+        // direction: 'forward' 向前滚动（向下），'backward' 向后滚动（向上），null 不指定方向
+        function checkPreloadNeeded(userCurrentPage, direction) {
+            // 如果不按需加载，直接返回（所有页面已经在队列中）
+            if (!isNeedLoad) {
+                myConsole.log(`[checkPreloadNeeded] isNeedLoad=false，跳过预加载检查（所有页面已在队列中）`);
+                return;
+            }
+
+            // 确保使用有效的页码
+            if (!userCurrentPage || userCurrentPage < 1) {
+                userCurrentPage = currentPage || 1;
+            }
+
+            // 计算预加载页数
+            let preloadCount = PRELOAD_AHEAD;
+
+            // 双页视图下，需要计算每行页数
+            if (viewMode === 'two-page') {
+                const pagesPerRow = calculatePagesPerRow();
+                // 预加载数量 = PRELOAD_AHEAD * 每行页数
+                preloadCount = PRELOAD_AHEAD * pagesPerRow;
+            }
+
+            // 根据滚动方向决定预加载范围
+            let preloadStart, preloadEnd;
+
+            if (direction === 'forward') {
+                // 向前滚动：优先加载后面的页面
+                preloadStart = userCurrentPage;
+                preloadEnd = Math.min(userCurrentPage + preloadCount, totalPages);
+            } else if (direction === 'backward') {
+                // 向后滚动：优先加载前面的页面
+                preloadStart = Math.max(1, userCurrentPage - preloadCount);
+                preloadEnd = userCurrentPage;
+            } else {
+                // 不指定方向：默认向后加载（保持原有逻辑）
+                preloadStart = userCurrentPage;
+                preloadEnd = Math.min(userCurrentPage + preloadCount, totalPages);
+            }
+
+            myConsole.log(`[checkPreloadNeeded] 当前页: ${userCurrentPage}, 方向: ${direction || 'none'}, 预加载范围: ${preloadStart}-${preloadEnd}, 最大已加载: ${maxLoadedPage}`);
+
+            // 收集需要加载的页面
+            const pagesToLoad = [];
+            let startPage, endPage;
+
+            if (direction === 'backward') {
+                // 向后滚动：检查前面的页面（小于maxLoadedPage的页面）
+                // 从preloadStart到min(preloadEnd, maxLoadedPage - 1)
+                startPage = preloadStart;
+                endPage = Math.min(preloadEnd, maxLoadedPage - 1);
+            } else {
+                // 向前滚动或不指定方向：检查后面的页面（大于maxLoadedPage的页面）
+                // 从max(preloadStart, maxLoadedPage + 1)到preloadEnd
+                startPage = Math.max(preloadStart, maxLoadedPage + 1);
+                endPage = preloadEnd;
+            }
+
+            // 确保范围有效
+            if (startPage > endPage || startPage < 1 || endPage > totalPages) {
+                myConsole.log(`[checkPreloadNeeded] 检查页面范围无效: ${startPage}-${endPage}，跳过`);
+            } else {
+                myConsole.log(`[checkPreloadNeeded] 检查页面范围: ${startPage}-${endPage}`);
+
+                for (let pageNum = startPage; pageNum <= endPage; pageNum++) {
+                    // 检查页面是否已渲染、正在渲染或已在队列中
+                    const isRendered = renderedPages.has(pageNum);
+                    const inQueue = loadingQueue.includes(pageNum);
+                    const pageContainer = document.getElementById(`page-${pageNum}`);
+                    const hasCanvas = pageContainer && pageContainer.querySelector('.page-canvas');
+
+                    myConsole.log(`[checkPreloadNeeded] 检查第 ${pageNum} 页: 已渲染=${isRendered}, 在队列=${inQueue}, 有容器=${!!pageContainer}, 有画布=${hasCanvas}`);
+
+                    // 如果页面未渲染且不在队列中且没有画布，添加到待加载列表
+                    if (!isRendered && !inQueue && !hasCanvas) {
+                        pagesToLoad.push(pageNum);
+                    }
+                }
+            }
+
+            if (pagesToLoad.length === 0) {
+                myConsole.log(`[checkPreloadNeeded] 没有需要加载的页面`);
+                // 即使没有新页面需要加载，也要检查队列是否需要处理
+                // 如果队列中有页面但未在渲染，触发渲染
+                if (!isRendering && loadingQueue.length > 0) {
+                    const nextPage = loadingQueue.shift();
+                    myConsole.log(`[checkPreloadNeeded] 队列中有待处理页面，开始渲染第 ${nextPage} 页`);
+                    renderPage(nextPage);
+                }
+                return;
+            }
+
+            // 根据滚动方向决定加载顺序
+            if (direction === 'forward') {
+                // 向前滚动：按页码从小到大加载（先加载后面的页面）
+                pagesToLoad.sort((a, b) => a - b);
+            } else if (direction === 'backward') {
+                // 向后滚动：按页码从大到小加载（先加载前面的页面）
+                pagesToLoad.sort((a, b) => b - a);
+            }
+
+            // 将页面添加到预加载队列
+            let hasNewPage = false;
+            pagesToLoad.forEach(pageNum => {
+                myConsole.log(`[checkPreloadNeeded] 预加载第 ${pageNum} 页 (方向: ${direction || 'none'})`);
+                preloadPage(pageNum);
+                hasNewPage = true;
+            });
+
+            // 如果有新页面加入队列，确保开始渲染
+            if (hasNewPage && !isRendering && loadingQueue.length > 0) {
+                const nextPage = loadingQueue.shift();
+                myConsole.log(`[checkPreloadNeeded] 开始渲染第 ${nextPage} 页`);
+                renderPage(nextPage);
+            }
+        }
+
+        // 更新分页控件状态
+        function updatePagination() {
+            pageInput.value = currentPage;
+            prevBtn.disabled = currentPage <= 1;
+            nextBtn.disabled = currentPage >= totalPages;
+
+            // 更新URL hash
+            updateUrlHash(currentPage);
+
+            // 更新缩略图active状态和滚动位置
+            updateThumbnailActive(currentPage);
+        }
+
+        // 更新URL hash
+        function updateUrlHash(pageNum) {
+            const newHash = `#${pageNum}`;
+            if (window.location.hash !== newHash) {
+                // 使用 history.replaceState 避免在历史记录中创建新条目
+                window.history.replaceState(null, '', window.location.pathname + window.location.search + newHash);
+                myConsole.log(`[updateUrlHash] URL hash已更新为: ${newHash}`);
+            }
+        }
+
+        // 更新缩略图active状态和滚动位置
+        // 标记是否正在手动滚动缩略图，避免自动滚动干扰
+        let isManuallyScrollingThumbnails = false;
+        let thumbnailScrollTimeout = null;
+
+        function updateThumbnailActive(pageNum, retryCount = 0) {
+            const maxRetries = 5;
+
+            // 移除所有active状态
+            document.querySelectorAll('.thumbnail-item').forEach(item => {
+                item.classList.remove('active');
+            });
+
+            // 添加当前页的active状态
+            const currentThumbnail = document.getElementById(`thumbnail-${pageNum}`);
+            if (currentThumbnail) {
+                currentThumbnail.classList.add('active');
+
+                // 只有在不是手动滚动时才自动滚动
+                if (!isManuallyScrollingThumbnails) {
+                    // 确保缩略图滚动到可见区域
+                    // 使用 requestAnimationFrame 确保 DOM 更新后再滚动
+                    requestAnimationFrame(() => {
+                        // 再次检查是否正在手动滚动（可能在 requestAnimationFrame 期间用户开始滚动）
+                        if (isManuallyScrollingThumbnails) {
+                            return;
+                        }
+
+                        // 查找缩略图列表的滚动容器（sidebar-content）
+                        const sidebarContent = currentThumbnail.closest('.sidebar-content');
+
+                        if (sidebarContent) {
+                            // 计算缩略图相对于滚动容器的位置
+                            const containerRect = sidebarContent.getBoundingClientRect();
+                            const thumbnailRect = currentThumbnail.getBoundingClientRect();
+
+                            // 检查缩略图是否在容器的可见区域内（留一些边距）
+                            const margin = 20; // 20px边距
+                            const isVisible = thumbnailRect.top >= (containerRect.top - margin) &&
+                                thumbnailRect.bottom <= (containerRect.bottom + margin);
+
+                            if (!isVisible) {
+                                // 如果不在可见区域内，手动计算滚动位置
+                                const thumbnailOffsetTop = currentThumbnail.offsetTop;
+                                const containerHeight = sidebarContent.clientHeight;
+                                const thumbnailHeight = currentThumbnail.offsetHeight;
+
+                                // 计算目标滚动位置，使缩略图居中或尽可能可见
+                                let targetScrollTop;
+                                if (thumbnailRect.top < containerRect.top) {
+                                    // 缩略图在容器上方，滚动到顶部
+                                    targetScrollTop = thumbnailOffsetTop - margin;
+                                } else {
+                                    // 缩略图在容器下方，滚动到底部
+                                    targetScrollTop = thumbnailOffsetTop - containerHeight + thumbnailHeight + margin;
+                                }
+
+                                // 平滑滚动
+                                sidebarContent.scrollTo({
+                                    top: Math.max(0, targetScrollTop),
+                                    behavior: 'smooth'
+                                });
+                                myConsole.log(`[updateThumbnailActive] 缩略图不在可见区域，已滚动到可见区域 (scrollTop: ${targetScrollTop})`);
+                            } else {
+                                // 已经在可见区域内，不需要滚动
+                                myConsole.log(`[updateThumbnailActive] 缩略图已在可见区域内，无需滚动`);
+                            }
+                        }
+                    });
+                } else {
+                    // 用户正在手动滚动，跳过自动滚动
+                    myConsole.log(`[updateThumbnailActive] 用户正在手动滚动缩略图，跳过自动滚动`);
+                }
+
+                myConsole.log(`[updateThumbnailActive] 缩略图已更新，第 ${pageNum} 页标记为active`);
+            } else {
+                // 如果缩略图元素不存在，可能是还没生成，延迟重试
+                if (retryCount < maxRetries) {
+                    myConsole.log(`[updateThumbnailActive] 第 ${pageNum} 页缩略图元素不存在，${100 * (retryCount + 1)}ms后重试...`);
+                    setTimeout(() => updateThumbnailActive(pageNum, retryCount + 1), 100 * (retryCount + 1));
+                } else {
+                    myConsole.warn(`[updateThumbnailActive] 未找到缩略图 thumbnail-${pageNum}，已重试 ${maxRetries} 次`);
+                }
+            }
+        }
+
+        // 重新渲染所有页面（用于缩放和旋转）
+        function rerenderAllPages() {
+            renderedPages.forEach(pageNum => {
+                const pageContainer = document.getElementById(`page-${pageNum}`);
+                if (pageContainer) {
+                    const canvas = pageContainer.querySelector('.page-canvas');
+                    const pageNumber = pageContainer.querySelector('.page-number');
+                    if (canvas) {
+                        canvas.remove();
+                        // 同时删除页码指示，避免重复
+                        if (pageNumber) {
+                            pageNumber.remove();
+                        }
+                        renderedPages.delete(pageNum);
+                        renderPage(pageNum);
+                    }
+                }
+            });
+        }
+
+        // 上一页
+        if (prevBtn) {
+            prevBtn.addEventListener('click', function () {
+                if (currentPage <= 1) return;
+                jumpToPage(currentPage - 1);
+                checkPreloadNeeded(currentPage);
+            });
+        } else {
+            myConsole.warn('[初始化] prev-btn 元素未找到');
+        }
+
+        // 下一页
+        if (nextBtn) {
+            nextBtn.addEventListener('click', function () {
+                if (currentPage >= totalPages) return;
+                jumpToPage(currentPage + 1);
+                checkPreloadNeeded(currentPage);
+            });
+        } else {
+            myConsole.warn('[初始化] next-btn 元素未找到');
+        }
+
+        // 使用wheel事件检测滚动和当前可见页面（所有模式都使用wheel事件）
+        // 使用独立的scrollTimeout变量，用于检测当前可见页面
+        let normalScrollTimeout = null;
+
+        // 检测当前可见页面的函数（用于非演示模式）
+        // direction: 'forward' 向前滚动（向下），'backward' 向后滚动（向上），null 不指定方向
+        function detectCurrentPage(direction) {
+            const pageContainers = document.querySelectorAll('.page-container');
+            let newCurrentPage = currentPage;
+            let maxVisiblePage = currentPage;
+            let bestPage = currentPage;
+            let minDistance = Infinity;
+            const viewportCenter = window.innerHeight / 2;
+
+            // 找到视口中最接近中心的页面
+            pageContainers.forEach(container => {
+                const rect = container.getBoundingClientRect();
+                const pageNum = parseInt(container.id.split('-')[1]);
+                if (!pageNum) return;
+
+                // 计算页面中心到视口中心的距离
+                const pageCenter = rect.top + rect.height / 2;
+                const distance = Math.abs(pageCenter - viewportCenter);
+
+                // 如果页面在视口中可见
+                if (rect.top < window.innerHeight && rect.bottom > 0) {
+                    // 记录视口中可见的最大页码（用于预加载判断）
+                    maxVisiblePage = Math.max(maxVisiblePage, pageNum);
+
+                    // 如果这个页面更接近视口中心，更新最佳页面
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        bestPage = pageNum;
+                    }
+                }
+
+                // 如果页面在视口中部附近，也认为是当前页面（备用逻辑）
+                if (rect.top < viewportCenter && rect.bottom > viewportCenter) {
+                    newCurrentPage = pageNum;
+                }
+            });
+
+            // 使用最接近中心的页面作为当前页（如果找到了）
+            if (minDistance < Infinity) {
+                newCurrentPage = bestPage;
+            }
+
+            // 如果当前页发生变化，更新
+            if (newCurrentPage !== currentPage) {
+                myConsole.log(`[detectCurrentPage] 当前页从 ${currentPage} 更新到 ${newCurrentPage} (距离视口中心: ${minDistance.toFixed(0)}px)`);
+                currentPage = newCurrentPage;
+                updatePagination(); // updatePagination 内部会调用 updateUrlHash 和 updateThumbnailActive
+            } else {
+                // 即使当前页没有变化，也确保缩略图状态正确（防止初始化时的问题）
+                // 只在有可见页面时才更新，避免不必要的调用
+                if (minDistance < Infinity) {
+                    updateThumbnailActive(currentPage);
+                }
+            }
+
+            // 使用视口中可见的最大页码来触发预加载，确保即使当前页还没完全进入视口，也能预加载
+            const pageForPreload = Math.max(newCurrentPage, maxVisiblePage);
+            myConsole.log(`[detectCurrentPage] 触发预加载检查，使用页码: ${pageForPreload} (当前页: ${newCurrentPage}, 最大可见: ${maxVisiblePage}, 方向: ${direction || 'none'})`);
+
+            // 检查是否需要预加载，传递滚动方向
+            checkPreloadNeeded(pageForPreload, direction);
+        }
+
+        // 添加键盘导航支持
+        document.addEventListener('keydown', function (e) {
+            if (viewMode === 'presentation') {
+                // 演示模式下，支持更多快捷键
+                if (e.key === 'ArrowLeft' || e.key === 'PageUp' || e.key === 'ArrowUp') {
+                    // 上一页
+                    e.preventDefault();
+                    if (currentPage > 1) {
+                        currentPage--;
+                        updatePagination();
+                        showPresentationPage(currentPage);
+                        checkPreloadNeeded(currentPage);
+                    }
+                } else if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === 'ArrowDown' || e.key === ' ') {
+                    // 下一页
+                    e.preventDefault();
+                    if (currentPage < totalPages) {
+                        currentPage++;
+                        updatePagination();
+                        showPresentationPage(currentPage);
+                        checkPreloadNeeded(currentPage);
+                    }
+                }
+            } else {
+                if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+                    // 上一页
+                    e.preventDefault();
+                    prevBtn.click();
+                } else if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
+                    // 下一页
+                    e.preventDefault();
+                    nextBtn.click();
+                }
+            }
+        });
+
+        // 演示模式下使用wheel事件检测滚动
+        let wheelTimeout = null;
+        // wheel事件处理函数：所有模式都使用wheel事件
+        // 演示模式下：阻止默认滚动，使用wheel切换页面
+        // 非演示模式下：不阻止默认滚动，检测当前可见页面并触发预加载
+        let wheelHandler = null;
+
+        // 标记wheel事件已触发，防止scroll事件重复处理
+        let wheelEventTriggered = false;
+        let wheelEventResetTimeout = null;
+
+        // 重置wheel事件标记
+        function markWheelEventTriggered() {
+            wheelEventTriggered = true;
+            if (wheelEventResetTimeout) {
+                clearTimeout(wheelEventResetTimeout);
+            }
+            // 150ms后重置标记，允许scroll事件处理（如果wheel没有触发scroll）
+            wheelEventResetTimeout = setTimeout(function () {
+                wheelEventTriggered = false;
+            }, 150);
+        }
+
+        function setupWheelHandler() {
+            // 移除旧的监听器（如果存在）
+            if (wheelHandler) {
+                document.removeEventListener('wheel', wheelHandler);
+                wheelHandler = null;
+            }
+
+            // 创建wheel事件处理函数
+            wheelHandler = function (e) {
+                // 记录滚动方向
+                const scrollDirection = e.deltaY > 0 ? 'forward' : (e.deltaY < 0 ? 'backward' : null);
+
+                if (viewMode === 'presentation') {
+                    // 演示模式：阻止默认滚动行为，使用wheel切换页面
+                    e.preventDefault();
+
+                    // 节流：每200ms检查一次
+                    if (wheelTimeout) {
+                        clearTimeout(wheelTimeout);
+                    }
+                    wheelTimeout = setTimeout(function () {
+                        if (e.deltaY > 0 && currentPage < totalPages) {
+                            // 向下滚动，下一页
+                            currentPage++;
+                            updatePagination();
+                            showPresentationPage(currentPage);
+                            checkPreloadNeeded(currentPage, 'forward');
+                        } else if (e.deltaY < 0 && currentPage > 1) {
+                            // 向上滚动，上一页
+                            currentPage--;
+                            updatePagination();
+                            showPresentationPage(currentPage);
+                            checkPreloadNeeded(currentPage, 'backward');
+                        }
+                    }, 200);
+                } else {
+                    // 非演示模式：不阻止默认滚动，但检测当前可见页面并触发预加载
+                    // 标记wheel事件已触发，防止scroll事件重复处理
+                    markWheelEventTriggered();
+
+                    // 使用节流优化性能
+                    if (normalScrollTimeout) {
+                        clearTimeout(normalScrollTimeout);
+                    }
+                    normalScrollTimeout = setTimeout(function () {
+                        detectCurrentPage(scrollDirection);
+                    }, 50);
+                }
+            };
+
+            // 注册wheel事件监听器
+            // 使用passive: false以便在演示模式下调用preventDefault()
+            // 非演示模式下虽然不调用preventDefault()，但使用passive: false也不会影响性能
+            document.addEventListener('wheel', wheelHandler, { passive: false });
+
+            // PDF分页列表滚动事件 - 用于检测当前可见页面并触发预加载
+            // 注意：wheel事件也会触发scroll事件，需要防抖处理避免重复触发
+            let scrollEventTimeout = null;
+            let lastScrollTop = 0;
+
+            mainContent.addEventListener('scroll', function (e) {
+                // 如果wheel事件刚触发过，跳过scroll事件处理，避免重复
+                if (wheelEventTriggered) {
+                    return;
+                }
+
+                // 防抖处理：清除之前的定时器
+                if (scrollEventTimeout) {
+                    clearTimeout(scrollEventTimeout);
+                }
+
+                // 计算滚动方向
+                const currentScrollTop = mainContent.scrollTop || document.documentElement.scrollTop;
+                const scrollDirection = currentScrollTop > lastScrollTop ? 'forward' : (currentScrollTop < lastScrollTop ? 'backward' : null);
+                lastScrollTop = currentScrollTop;
+
+                // 延迟处理，避免频繁触发
+                scrollEventTimeout = setTimeout(function () {
+                    // 检测当前可见页面并触发预加载
+                    detectCurrentPage(scrollDirection);
+                }, 100); // 100ms防抖延迟
+            }, { passive: true });
+        }
+
+        // 初始化：注册wheel事件监听器（所有模式都使用）
+        setupWheelHandler();
+
+        // 检测用户是否正在手动滚动缩略图区域
+        const sidebarContent = document.querySelector('.sidebar-content');
+        if (sidebarContent) {
+            sidebarContent.addEventListener('scroll', function () {
+                // 标记用户正在手动滚动
+                isManuallyScrollingThumbnails = true;
+
+                // 清除之前的定时器
+                if (thumbnailScrollTimeout) {
+                    clearTimeout(thumbnailScrollTimeout);
+                }
+
+                // 500ms后清除手动滚动标记，允许自动滚动
+                thumbnailScrollTimeout = setTimeout(() => {
+                    isManuallyScrollingThumbnails = false;
+                    myConsole.log('[updateThumbnailActive] 手动滚动结束，允许自动滚动');
+                }, 500);
+            }, { passive: true });
+        }
+
+        // 跳转到指定页面
+        pageInput.addEventListener('change', function () {
+            const pageNum = parseInt(this.value);
+            if (pageNum >= 1 && pageNum <= totalPages) {
+                jumpToPage(pageNum);
+                checkPreloadNeeded(currentPage);
+            } else {
+                this.value = currentPage;
+            }
+        });
+
+        // 缩放功能
+        zoomInBtn.addEventListener('click', function () {
+            currentScale = Math.min(currentScale + 0.25, 5);
+            updateZoomDisplay();
+            rerenderAllPages();
+        });
+
+        zoomOutBtn.addEventListener('click', function () {
+            currentScale = Math.max(currentScale - 0.25, 0.25);
+            updateZoomDisplay();
+            rerenderAllPages();
+        });
+
+        // 适应模式切换（适应宽度/适应页面）
+        fitToggleBtn.addEventListener('click', function () {
+            if (pdfDoc) {
+                pdfDoc.getPage(1).then(function (page) {
+                    const viewport = page.getViewport({ scale: 1 });
+
+                    if (fitMode === 'width') {
+                        // 切换到适应页面
+                        fitMode = 'page';
+                        const containerWidth = mainContent.clientWidth - 60;
+                        const containerHeight = window.innerHeight - 100;
+                        const scaleX = containerWidth / viewport.width;
+                        const scaleY = containerHeight / viewport.height;
+                        currentScale = Math.min(scaleX, scaleY);
+                        fitToggleBtn.title = '适应页面';
+                        // 更新图标为适应页面图标（矩形+四周箭头）
+                        fitIcon.innerHTML = `
+                            <rect x="6" y="6" width="12" height="12" rx="1"/>
+                            <path d="M2 12h3M19 12h3M12 2v3M12 19v3" stroke-linecap="round"/>
+                            <path d="M4 10l-2 2 2 2M20 10l2 2-2 2M10 4l2-2 2 2M10 20l2 2 2-2" stroke-linecap="round" stroke-linejoin="round"/>
+                        `;
+                    } else {
+                        // 切换到适应宽度
+                        fitMode = 'width';
+                        const containerWidth = mainContent.clientWidth - 60;
+                        currentScale = containerWidth / viewport.width;
+                        fitToggleBtn.title = '适应宽度';
+                        // 更新图标为适应宽度图标（矩形+左右箭头）
+                        fitIcon.innerHTML = `
+                            <rect x="6" y="8" width="12" height="8" rx="1"/>
+                            <path d="M2 12h3M19 12h3" stroke-linecap="round"/>
+                            <path d="M4 10l-2 2 2 2M20 10l2 2-2 2" stroke-linecap="round" stroke-linejoin="round"/>
+                        `;
+                    }
+
+                    updateZoomDisplay();
+                    rerenderAllPages();
+                });
+            }
+        });
+
+        function updateZoomDisplay() {
+            zoomValue.textContent = Math.round(currentScale * 100) + '%';
+        }
+
+        // 旋转功能（只保留逆时针旋转）
+        rotateCcwBtn.addEventListener('click', function () {
+            currentRotation = (currentRotation - 90 + 360) % 360;
+            rerenderAllPages();
+        });
+
+        // 下载功能
+        downloadBtn.addEventListener('click', function () {
+            const link = document.createElement('a');
+            link.href = pdfUrl;
+            link.download = pdfUrl.split('/').pop() || 'document.pdf';
+            link.click();
+        });
+
+        // 双页视图
+        twoPageBtn.addEventListener('click', function () {
+            if (viewMode === 'two-page') {
+                viewMode = 'single';
+                pdfViewer.classList.remove('two-page');
+                twoPageBtn.classList.remove('active');
+            } else {
+                viewMode = 'two-page';
+                pdfViewer.classList.add('two-page');
+                twoPageBtn.classList.add('active');
+                presentationBtn.classList.remove('active');
+                pdfViewer.classList.remove('presentation');
+            }
+        });
+
+        // 演示模式（全屏）
+        presentationBtn.addEventListener('click', function () {
+            if (viewMode === 'presentation') {
+                // 退出全屏
+                exitFullscreen();
+            } else {
+                // 进入全屏
+                enterFullscreen();
+            }
+        });
+
+        // 显示演示模式的当前页
+        function showPresentationPage(pageNum) {
+            // 隐藏所有页面
+            document.querySelectorAll('.page-container').forEach(container => {
+                container.style.display = 'none';
+            });
+
+            // 显示当前页
+            const currentPageElement = document.getElementById(`page-${pageNum}`);
+            if (currentPageElement) {
+                currentPageElement.style.display = 'flex';
+                currentPageElement.style.flexDirection = 'column';
+                currentPageElement.style.alignItems = 'center';
+                currentPageElement.style.justifyContent = 'center';
+                currentPageElement.style.height = '100vh';
+                currentPageElement.style.maxHeight = '100vh';
+
+                // 确保canvas高度适应屏幕
+                const canvas = currentPageElement.querySelector('.page-canvas');
+                if (canvas) {
+                    canvas.style.maxHeight = 'calc(100vh - 60px)';
+                    canvas.style.width = 'auto';
+                    canvas.style.height = 'auto';
+                }
+
+                // 滚动到顶部
+                window.scrollTo(0, 0);
+            } else {
+                // 如果页面未加载，先加载
+                jumpToPage(pageNum);
+                // 加载完成后再次调用
+                setTimeout(function () {
+                    showPresentationPage(pageNum);
+                }, 500);
+            }
+        }
+
+        // 进入全屏
+        function enterFullscreen() {
+            const element = document.documentElement;
+
+            viewMode = 'presentation';
+            presentationBtn.classList.add('active');
+            twoPageBtn.classList.remove('active');
+            pdfViewer.classList.remove('two-page');
+            pdfViewer.classList.add('presentation');
+
+            // 添加演示模式类，用于CSS样式
+            document.body.classList.add('presentation-mode');
+            mainContent.classList.add('presentation-mode');
+
+            // 注意：wheel事件监听器已在初始化时注册，会根据viewMode自动切换处理逻辑
+
+            // 隐藏工具栏和侧边栏
+            toolbar.style.display = 'none';
+            sidebar.style.display = 'none';
+            mainContent.style.marginLeft = '0';
+            mainContent.style.marginTop = '0';
+            mainContent.style.height = '100vh';
+            mainContent.style.overflow = 'hidden';
+
+            // 只显示当前页
+            showPresentationPage(currentPage || 1);
+
+            // 检查是否支持全屏API
+            const adjustPresentationScale = function () {
+                setTimeout(function () {
+                    if (pdfDoc) {
+                        pdfDoc.getPage(currentPage || 1).then(function (page) {
+                            const viewport = page.getViewport({ scale: 1, rotation: currentRotation });
+                            // 演示模式下，优先适应高度，确保页面高度100%屏幕
+                            const containerWidth = window.innerWidth - 20;
+                            const containerHeight = window.innerHeight - 80; // 留出页码空间
+                            const scaleX = containerWidth / viewport.width;
+                            const scaleY = containerHeight / viewport.height;
+                            // 使用Math.min确保页面完全适应屏幕，优先适应高度
+                            currentScale = Math.min(scaleX, scaleY);
+                            updateZoomDisplay();
+                            // 只重新渲染当前页
+                            const pageContainer = document.getElementById(`page-${currentPage || 1}`);
+                            if (pageContainer) {
+                                const canvas = pageContainer.querySelector('.page-canvas');
+                                if (canvas) {
+                                    canvas.remove();
+                                    const pageNumber = pageContainer.querySelector('.page-number');
+                                    if (pageNumber) {
+                                        pageNumber.remove();
+                                    }
+                                    renderedPages.delete(currentPage || 1);
+                                    renderPage(currentPage || 1);
+                                }
+                            }
+                        });
+                    }
+                }, 200);
+            };
+
+            if (element.requestFullscreen) {
+                element.requestFullscreen().then(function () {
+                    adjustPresentationScale();
+                }).catch(function (err) {
+                    myConsole.error('无法进入全屏:', err);
+                });
+            } else if (element.webkitRequestFullscreen) {
+                element.webkitRequestFullscreen();
+                adjustPresentationScale();
+            } else if (element.mozRequestFullScreen) {
+                element.mozRequestFullScreen();
+                adjustPresentationScale();
+            } else if (element.msRequestFullscreen) {
+                element.msRequestFullscreen();
+                adjustPresentationScale();
+            } else {
+                // 如果不支持全屏API，使用CSS全屏模拟
+                document.body.classList.add('fullscreen-mode');
+                adjustPresentationScale();
+            }
+        }
+
+        // 退出全屏
+        function exitFullscreen() {
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+            } else if (document.webkitExitFullscreen) {
+                document.webkitExitFullscreen();
+            } else if (document.mozCancelFullScreen) {
+                document.mozCancelFullScreen();
+            } else if (document.msExitFullscreen) {
+                document.msExitFullscreen();
+            } else {
+                document.body.classList.remove('fullscreen-mode');
+            }
+
+            viewMode = 'single';
+            presentationBtn.classList.remove('active');
+            pdfViewer.classList.remove('presentation');
+
+            // 移除演示模式类
+            document.body.classList.remove('presentation-mode');
+            mainContent.classList.remove('presentation-mode');
+
+            // 注意：wheel事件监听器保持不变，会根据viewMode自动切换处理逻辑
+
+            // 恢复显示所有页面
+            document.querySelectorAll('.page-container').forEach(container => {
+                container.style.display = '';
+                container.style.flexDirection = '';
+                container.style.alignItems = '';
+                container.style.justifyContent = '';
+                container.style.height = '';
+            });
+
+            // 恢复工具栏和侧边栏
+            setTimeout(function () {
+                toolbar.style.display = '';
+                sidebar.style.display = '';
+                mainContent.style.marginLeft = '';
+                mainContent.style.marginTop = '';
+                mainContent.style.height = '';
+                mainContent.style.overflow = '';
+            }, 100);
+        }
+
+        // 监听全屏状态变化
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+        document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+        document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+
+        function handleFullscreenChange() {
+            const isFullscreen = document.fullscreenElement ||
+                document.webkitFullscreenElement ||
+                document.mozFullScreenElement ||
+                document.msFullscreenElement;
+
+            if (!isFullscreen && viewMode === 'presentation') {
+                // 如果退出全屏，恢复状态
+                exitFullscreen();
+            }
+        }
+
+        // 文档属性
+        propertiesBtn.addEventListener('click', function () {
+            if (pdfDoc) {
+                pdfDoc.getMetadata().then(function (metadata) {
+                    const content = document.getElementById('properties-content');
+                    content.innerHTML = `
+                        <table style="width: 100%; border-collapse: collapse;">
+                            <tr><td style="padding: 8px; border-bottom: 1px solid #ddd; font-weight: 600;">标题:</td><td style="padding: 8px; border-bottom: 1px solid #ddd;">${metadata.info?.Title || '未知'}</td></tr>
+                            <tr><td style="padding: 8px; border-bottom: 1px solid #ddd; font-weight: 600;">作者:</td><td style="padding: 8px; border-bottom: 1px solid #ddd;">${metadata.info?.Author || '未知'}</td></tr>
+                            <tr><td style="padding: 8px; border-bottom: 1px solid #ddd; font-weight: 600;">主题:</td><td style="padding: 8px; border-bottom: 1px solid #ddd;">${metadata.info?.Subject || '未知'}</td></tr>
+                            <tr><td style="padding: 8px; border-bottom: 1px solid #ddd; font-weight: 600;">关键词:</td><td style="padding: 8px; border-bottom: 1px solid #ddd;">${metadata.info?.Keywords || '未知'}</td></tr>
+                            <tr><td style="padding: 8px; border-bottom: 1px solid #ddd; font-weight: 600;">创建者:</td><td style="padding: 8px; border-bottom: 1px solid #ddd;">${metadata.info?.Creator || '未知'}</td></tr>
+                            <tr><td style="padding: 8px; border-bottom: 1px solid #ddd; font-weight: 600;">制作工具:</td><td style="padding: 8px; border-bottom: 1px solid #ddd;">${metadata.info?.Producer || '未知'}</td></tr>
+                            <tr><td style="padding: 8px; border-bottom: 1px solid #ddd; font-weight: 600;">创建日期:</td><td style="padding: 8px; border-bottom: 1px solid #ddd;">${metadata.info?.CreationDate ? new Date(metadata.info.CreationDate).toLocaleString() : '未知'}</td></tr>
+                            <tr><td style="padding: 8px; border-bottom: 1px solid #ddd; font-weight: 600;">修改日期:</td><td style="padding: 8px; border-bottom: 1px solid #ddd;">${metadata.info?.ModDate ? new Date(metadata.info.ModDate).toLocaleString() : '未知'}</td></tr>
+                            <tr><td style="padding: 8px; border-bottom: 1px solid #ddd; font-weight: 600;">页数:</td><td style="padding: 8px; border-bottom: 1px solid #ddd;">${totalPages}</td></tr>
+                            <tr><td style="padding: 8px; border-bottom: 1px solid #ddd; font-weight: 600;">PDF版本:</td><td style="padding: 8px; border-bottom: 1px solid #ddd;">${pdfDoc.pdfInfo?.PDFFormatVersion || '未知'}</td></tr>
+                        </table>
+                    `;
+                    propertiesModal.classList.add('active');
+                });
+            }
+        });
+
+        propertiesClose.addEventListener('click', function () {
+            propertiesModal.classList.remove('active');
+        });
+
+        propertiesModal.addEventListener('click', function (e) {
+            if (e.target === propertiesModal) {
+                propertiesModal.classList.remove('active');
+            }
+        });
+
+        // 生成缩略图
+        function generateThumbnails() {
+            if (!pdfDoc) return;
+            thumbnailList.innerHTML = '';
+            for (let i = 1; i <= totalPages; i++) {
+                const thumbnailItem = document.createElement('div');
+                thumbnailItem.className = 'thumbnail-item';
+                thumbnailItem.id = `thumbnail-${i}`;
+                if (i === currentPage) {
+                    thumbnailItem.classList.add('active');
+                }
+                thumbnailItem.addEventListener('click', function () {
+                    currentPage = i;
+                    updatePagination(); // updatePagination 内部会调用 updateThumbnailActive
+                    // 跳转到页面
+                    jumpToPage(i);
+                });
+
+                // 检查页面是否已渲染
+                const isRendered = renderedPages.has(i);
+                const pageContainer = document.getElementById(`page-${i}`);
+                const canvas = pageContainer && pageContainer.querySelector('.page-canvas');
+
+                const thumbnailImage = document.createElement('img');
+                thumbnailImage.className = 'thumbnail-image';
+                thumbnailImage.alt = `第 ${i} 页`;
+                if (isRendered && canvas) {
+                    // 已渲染：显示图像
+                    thumbnailImage.src = canvas.toDataURL('image/png');
+                } else {
+                    thumbnailImage.src = 'data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQImWNgYGBgAAAABQABh6FO1AAAAABJRU5ErkJggg==';
+                    // 未渲染：显示"第[换行]N[换行]页"
+                }
+
+                thumbnailItem.appendChild(thumbnailImage);
+                const pageNum = document.createElement('div');
+                pageNum.className = 'thumbnail-page-num';
+                pageNum.textContent = i;
+                thumbnailItem.appendChild(pageNum);
+                //
+
+                thumbnailList.appendChild(thumbnailItem);
+            }
+        }
+
+        // 更新单个缩略图（当页面渲染完成后调用）
+        function updateThumbnail(pageNum, retryCount = 0) {
+            const maxRetries = 3;
+            const thumbnailItem = document.getElementById(`thumbnail-${pageNum}`);
+
+            if (!thumbnailItem) {
+                if (retryCount < maxRetries) {
+                    // 如果缩略图元素不存在，可能是还没生成，延迟重试
+                    myConsole.log(`[updateThumbnail] 第 ${pageNum} 页缩略图元素不存在，${100 * (retryCount + 1)}ms后重试...`);
+                    setTimeout(() => updateThumbnail(pageNum, retryCount + 1), 100 * (retryCount + 1));
+                } else {
+                    myConsole.warn(`[updateThumbnail] 第 ${pageNum} 页缩略图元素不存在，已重试 ${maxRetries} 次，放弃更新`);
+                }
+                return;
+            }
+
+            const pageContainer = document.getElementById(`page-${pageNum}`);
+            if (!pageContainer) {
+                if (retryCount < maxRetries) {
+                    myConsole.log(`[updateThumbnail] 第 ${pageNum} 页容器不存在，${100 * (retryCount + 1)}ms后重试...`);
+                    setTimeout(() => updateThumbnail(pageNum, retryCount + 1), 100 * (retryCount + 1));
+                } else {
+                    myConsole.warn(`[updateThumbnail] 第 ${pageNum} 页容器不存在，已重试 ${maxRetries} 次，放弃更新`);
+                }
+                return;
+            }
+
+            const canvas = pageContainer.querySelector('.page-canvas');
+
+            if (!canvas) {
+                if (retryCount < maxRetries) {
+                    // canvas可能还没添加到DOM，延迟重试
+                    myConsole.log(`[updateThumbnail] 第 ${pageNum} 页canvas不存在，${100 * (retryCount + 1)}ms后重试...`);
+                    setTimeout(() => updateThumbnail(pageNum, retryCount + 1), 100 * (retryCount + 1));
+                } else {
+                    myConsole.warn(`[updateThumbnail] 第 ${pageNum} 页canvas不存在，已重试 ${maxRetries} 次，放弃更新`);
+                }
+                return;
+            }
+
+            // 检查页面是否已渲染（如果还没标记，先标记）
+            if (!renderedPages.has(pageNum)) {
+                myConsole.log(`[updateThumbnail] 第 ${pageNum} 页还未标记为已渲染，先标记`);
+                renderedPages.add(pageNum);
+            }
+
+            // 如果已有图像，更新它；否则创建新的
+            let thumbnailImage = thumbnailItem.querySelector('.thumbnail-image');
+            if (!thumbnailImage) {
+                thumbnailImage = document.createElement('img');
+                thumbnailImage.className = 'thumbnail-image';
+                thumbnailItem.appendChild(thumbnailImage);
+            }
+
+            try {
+                thumbnailImage.src = canvas.toDataURL('image/png');
+                myConsole.log(`[updateThumbnail] 第 ${pageNum} 页缩略图已更新为图像`);
+            } catch (error) {
+                myConsole.error(`[updateThumbnail] 更新第 ${pageNum} 页缩略图时出错:`, error);
+                if (retryCount < maxRetries) {
+                    setTimeout(() => updateThumbnail(pageNum, retryCount + 1), 100 * (retryCount + 1));
+                }
+            }
+        }
+
+        // 加载大纲（优化：如果大纲在文件尾部，PDF.js会自动处理）
+        function loadOutline() {
+            if (!pdfDoc) return;
+
+            // PDF.js的getOutline()会自动处理，如果大纲在文件尾部，会先加载尾部
+            // 这里我们直接调用，PDF.js内部会处理Range请求
+            pdfDoc.getOutline().then(function (outline) {
+                if (!outline || outline.length === 0) {
+                    outlineList.innerHTML = '<p style="padding: 20px; text-align: center; color: #999;">此文档没有大纲</p>';
+                    return;
+                }
+
+                outlineList.innerHTML = '';
+                function renderOutline(items, level = 1) {
+                    items.forEach(function (item) {
+                        const outlineItem = document.createElement('div');
+                        outlineItem.className = `outline-item level-${level}`;
+                        outlineItem.textContent = item.title;
+                        outlineItem.addEventListener('click', function () {
+                            if (item.dest) {
+                                // item.dest 可能是字符串（目标名称）或数组（直接目标）
+                                let destPromise;
+
+                                if (Array.isArray(item.dest)) {
+                                    // 如果是数组，直接使用
+                                    destPromise = Promise.resolve(item.dest);
+                                } else {
+                                    // 如果是字符串，需要通过getDestination获取
+                                    destPromise = pdfDoc.getDestination(item.dest).catch(function (e) {
+                                        myConsole.warn('无法获取大纲目标:', item.dest, e);
+                                        return null;
+                                    });
+                                }
+
+                                destPromise.then(function (dest) {
+                                    if (!dest || !Array.isArray(dest) || dest.length === 0) {
+                                        myConsole.warn('无效的大纲目标:', item.dest);
+                                        return;
+                                    }
+
+                                    // dest[0] 是目标引用，需要获取页面索引
+                                    return pdfDoc.getPageIndex(dest[0]).catch(function (e) {
+                                        myConsole.warn('无法获取页面索引:', dest[0], e);
+                                        // 如果dest[0]是数字，可能是直接的页码
+                                        if (typeof dest[0] === 'number') {
+                                            return dest[0];
+                                        }
+                                        // 如果dest[1]存在且是数字，可能是页码
+                                        if (dest[1] && typeof dest[1] === 'number') {
+                                            return dest[1];
+                                        }
+                                        throw e;
+                                    });
+                                }).then(function (pageIndex) {
+                                    if (pageIndex !== undefined && pageIndex !== null) {
+                                        jumpToPage(pageIndex + 1);
+                                    }
+                                }).catch(function (e) {
+                                    myConsole.warn('无法跳转到大纲目标页面:', e);
+                                });
+                            }
+                        });
+                        outlineList.appendChild(outlineItem);
+                        if (item.items && item.items.length > 0) {
+                            renderOutline(item.items, level + 1);
+                        }
+                    });
+                }
+                renderOutline(outline);
+            }).catch(function (error) {
+                myConsole.warn('无法加载大纲:', error);
+                outlineList.innerHTML = '<p style="padding: 20px; text-align: center; color: #999;">无法加载大纲</p>';
+            });
+        }
+
+    </script>
+</body>
+
+</html>
